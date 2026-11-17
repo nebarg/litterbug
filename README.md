@@ -4,8 +4,12 @@ litterbug finds debug statements left in source code, such as `fmt.Println`,
 `console.log`, `var_dump` and `dd()`. It can scan files and directories, or run as a Git
 pre-commit hook that stops a commit adding them.
 
-The languages it knows and the patterns it looks for are kept in a config file, so you
-can add a language or a pattern, or switch one off, without changing any code.
+**It works with any language, not just the ones it ships with.** Go, JavaScript,
+TypeScript and PHP are built in, but every language litterbug knows is just a few lines
+of config: the file endings it covers and the patterns to look for. So you can teach it
+Python's `breakpoint()`, Ruby's `binding.pry`, Rust's `dbg!` or anything else yourself,
+without changing litterbug or waiting for a release. See
+[Adding a language](#adding-a-language).
 
 ## Install
 
@@ -86,6 +90,50 @@ would skip it.
 `--exclude` adds to the config's exclude patterns, with paths taken from the current
 directory. Run `litterbug --help` for every option.
 
+## Adding a language
+
+Any language can be added by editing the config; there is nothing to build. For example,
+to catch leftover `print()` calls and breakpoints in Python:
+
+1. Write out the default config, to `.litterbug.yml` at the root of the repository:
+
+   ```sh
+   litterbug init-config
+   ```
+
+   Use `litterbug init-config --global` instead to add the language for every
+   repository that doesn't have a config of its own.
+
+2. Add the language at the end of the file, under `languages:`, with the file endings it
+   covers and a regex for each thing to look for:
+
+   ```yaml
+     python:
+       extensions: [.py]
+       patterns:
+         print:
+           regex: '(^|[^\w.])print\s*\('
+         breakpoint:
+           regex: '\bbreakpoint\s*\(|\bpdb\.set_trace\s*\('
+   ```
+
+3. Run litterbug. Python files are now checked like any other, both on the command line
+   and by the pre-commit hook:
+
+   ```
+   scripts/sync.py
+     7  print("rows", len(rows))  [python/print]
+     8  breakpoint()  [python/breakpoint]
+     9  pdb.set_trace()  [python/breakpoint]
+
+   3 debug statements in 1 file
+   ```
+
+`litterbug --lang python` scans only the new language, which is handy while you tune
+its patterns. Commit `.litterbug.yml` so everyone working in the repository gets the
+same checks. [Configuration](#configuration) covers the rest of the format, such as
+switching patterns off and excluding files.
+
 ## The pre-commit hook
 
 ```sh
@@ -131,7 +179,8 @@ pre-commit:
 Without a config file, litterbug uses its built-in defaults, which cover Go, JavaScript
 and TypeScript (including `.vue` and `.svelte` files), and PHP.
 [internal/config/default.yml](internal/config/default.yml) lists their patterns. To
-change them, write the defaults out as a config file, then edit it:
+change them, or [add a language](#adding-a-language), write the defaults out as a
+config file, then edit it:
 
 ```sh
 litterbug init-config            # .litterbug.yml at the root of this repository
@@ -187,9 +236,9 @@ A config holds everything that is checked: a language or pattern it leaves out i
 scanned for. An unknown key is an error, so a typo such as `enable: false` is reported
 rather than ignored.
 
-For example, a Go command-line tool whose real output uses `fmt.Println`, and which also
-has some Python scripts, could run `litterbug init-config`, then in its `.litterbug.yml`
-switch off `fmt-print`, skip test files, and add a `python` language:
+For example, a Go command-line tool whose real output uses `fmt.Println` could run
+`litterbug init-config`, then in its `.litterbug.yml` switch off `fmt-print` and skip
+test files:
 
 ```yaml
 exclude:
@@ -206,15 +255,6 @@ languages:
         enabled: false
         regex: '\bfmt\.Print(f|ln)?\s*\('
       # The other Go patterns, and the other languages, as init-config wrote them.
-
-  python:
-    enabled: true
-    extensions: [.py]
-    patterns:
-      print:
-        regex: '(^|[^\w.])print\s*\('
-      breakpoint:
-        regex: '\bbreakpoint\s*\(|\bpdb\.set_trace\s*\('
 ```
 
 ### Taking up new defaults
