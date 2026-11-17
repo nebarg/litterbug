@@ -1,7 +1,9 @@
 // Package config loads litterbug's config: the languages to scan, the
-// patterns that find debug statements in them, and the directories to skip.
-// The global config is created with the defaults the first time it is
-// needed, and a repository's own config file overrides it.
+// patterns that find debug statements in them, and the files and
+// directories to skip. Exactly one config applies: a repository's own, the
+// user's global config without it, or the built-in defaults without either.
+// They are never combined, so a repository's config gives everyone working
+// in it the same checks, whatever their global config says.
 package config
 
 import (
@@ -11,12 +13,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
-	"slices"
-	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -27,93 +25,66 @@ const RepoFile = ".litterbug.yml"
 //go:embed default.yml
 var defaultConfig []byte
 
-// file is one config file as written. Its pointers, slices and maps are nil
-// for a field the file leaves out, which inherits the value when files
-// merge, so it can be told from a field set empty or false.
+// file is one config file as written.
 type file struct {
-	Exclude   *[]string            `yaml:"exclude"`
-	Languages map[string]*language `yaml:"languages"`
+	Exclude   []string            `yaml:"exclude"`
+	Languages map[string]language `yaml:"languages"`
 }
 
 type language struct {
-	Enabled    *bool               `yaml:"enabled"`
-	Extensions *[]string           `yaml:"extensions"`
-	Patterns   map[string]*pattern `yaml:"patterns"`
+	Enabled    *bool              `yaml:"enabled"`
+	Extensions []string           `yaml:"extensions"`
+	Patterns   map[string]pattern `yaml:"patterns"`
 }
 
 type pattern struct {
-	Enabled *bool   `yaml:"enabled"`
-	Regex   *string `yaml:"regex"`
+	Enabled *bool  `yaml:"enabled"`
+	Regex   string `yaml:"regex"`
 }
 
-// Global is the global config, which each repository's config overrides.
-type Global struct {
-	base file
-}
-
-// LoadGlobal reads the global config, creating it with the defaults if it
-// is missing. Notices, such as the global config being created, are
-// written to notices.
-func LoadGlobal(notices io.Writer) (Global, error) {
-	base, err := loadGlobal(notices)
-	if err != nil {
-		return Global{}, err
-	}
-	return Global{base}, nil
-}
-
-// Rules merges the RepoFile at repoRoot, if there is one, into the global
-// config, and compiles the result. An empty repoRoot is outside any
-// repository. langs, from the command line, picks the languages to scan in
-// place of those the config enables.
-func (g Global) Rules(repoRoot string, langs []string) (Rules, error) {
-	merged := g.base
-	if repoRoot != "" {
-		repo, found, err := readFile(filepath.Join(repoRoot, RepoFile))
-		if err != nil {
-			return Rules{}, err
-		}
-		if found {
-			merged = merge(merged, repo)
-		}
-	}
-	return compile(merged, langs)
-}
-
-// Load reads the global config and returns the rules for the repository
-// at repoRoot, as LoadGlobal and Rules do.
-func Load(repoRoot string, langs []string, notices io.Writer) (Rules, error) {
-	global, err := LoadGlobal(notices)
+// Load reads the config that applies in the repository at repoRoot, or
+// outside any repository when repoRoot is empty, and compiles the rules
+// to scan with. langs, from the command line, picks the languages to scan
+// in place of those the config enables.
+func Load(repoRoot string, langs []string) (Rules, error) {
+	name, data, err := find(repoRoot)
 	if err != nil {
 		return Rules{}, err
 	}
-	return global.Rules(repoRoot, langs)
-}
-
-// loadGlobal reads the global config. When it is missing, it is created
-// with the defaults; when it can't be, the defaults are used anyway, so an
-// unwritable home directory doesn't stop a commit.
-func loadGlobal(notices io.Writer) (file, error) {
-	path, err := globalPath()
+	rules, err := parseRules(data, langs)
 	if err != nil {
-		_, _ = fmt.Fprintf(notices, "litterbug: using the built-in config: %v\n", err)
-		return parse("built-in config", defaultConfig)
+		return Rules{}, fmt.Errorf("%s: %w", name, err)
 	}
-	f, found, err := readFile(path)
-	if err != nil || found {
-		return f, err
-	}
-	if err := writeDefault(path); err != nil {
-		_, _ = fmt.Fprintf(notices, "litterbug: using the built-in config, as it could not be saved: %v\n", err)
-		return parse("built-in config", defaultConfig)
-	}
-	_, _ = fmt.Fprintf(notices, "litterbug: created default config at %s\n", path)
-	return parse(path, defaultConfig)
+	return rules, nil
 }
 
-// globalPath is where the global config lives: litterbug/config.yml in
+// find returns the name and content of the config that applies in the
+// repository at repoRoot: its RepoFile, or else the global config, or else
+// the built-in defaults. Without a home directory, there is no global
+// config.
+func find(repoRoot string) (name string, data []byte, err error) {
+	var paths []string
+	if repoRoot != "" {
+		paths = append(paths, filepath.Join(repoRoot, RepoFile))
+	}
+	if global, err := GlobalPath(); err == nil {
+		paths = append(paths, global)
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			return path, data, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", nil, err
+		}
+	}
+	return "built-in config", defaultConfig, nil
+}
+
+// GlobalPath is where the global config lives: litterbug/config.yml in
 // $XDG_CONFIG_HOME, or in ~/.config without it.
-func globalPath() (string, error) {
+func GlobalPath() (string, error) {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
 		return filepath.Join(dir, "litterbug", "config.yml"), nil
 	}
@@ -124,72 +95,48 @@ func globalPath() (string, error) {
 	return filepath.Join(home, ".config", "litterbug", "config.yml"), nil
 }
 
-func writeDefault(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
+// ErrExists is returned by WriteDefault for a config that is already there.
+var ErrExists = errors.New("there is already a config")
+
+// WriteDefault writes the built-in defaults to path, as a config to edit,
+// making its directory if need be. It returns ErrExists for a file already
+// at path, unless force, when that file is first moved to path + ".bak",
+// replacing any earlier backup, and the backup's path is returned.
+func WriteDefault(path string, force bool) (backup string, err error) {
+	if _, err := os.Lstat(path); err == nil {
+		if !force {
+			return "", ErrExists
+		}
+		backup = path + ".bak"
+		if err := os.Rename(path, backup); err != nil {
+			return "", err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", err
 	}
-	return os.WriteFile(path, defaultConfig, 0644)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return backup, err
+	}
+	return backup, os.WriteFile(path, defaultConfig, 0644)
 }
 
-// readFile reads and parses the config file at path, reporting whether
-// there is one.
-func readFile(path string) (file, bool, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return file{}, false, nil
-	}
+// parseRules reads a config file's content and compiles its rules.
+func parseRules(data []byte, langs []string) (Rules, error) {
+	f, err := parse(data)
 	if err != nil {
-		return file{}, false, err
+		return Rules{}, err
 	}
-	f, err := parse(path, data)
-	return f, true, err
+	return compile(f, langs)
 }
 
 // parse reads a config file's content, rejecting keys it doesn't know, so
-// a typo such as "enable: false" isn't silently ignored. name says which
-// file it is in errors.
-func parse(name string, data []byte) (file, error) {
+// a typo such as "enable: false" isn't silently ignored.
+func parse(data []byte) (file, error) {
 	var f file
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&f); err != nil && !errors.Is(err, io.EOF) {
-		return file{}, fmt.Errorf("%s: %w", name, err)
-	}
-	if err := f.check(); err != nil {
-		return file{}, fmt.Errorf("%s: %w", name, err)
+		return file{}, err
 	}
 	return f, nil
-}
-
-// check finds the mistakes a file can be judged on alone, while its name
-// can still be given: extensions without a dot, and regexes that are empty
-// or don't compile. What a language or pattern lacks is only known once
-// the files are merged.
-func (f file) check() error {
-	for _, name := range slices.Sorted(maps.Keys(f.Languages)) {
-		l := f.Languages[name]
-		if l == nil {
-			continue
-		}
-		if l.Extensions != nil {
-			for _, extension := range *l.Extensions {
-				if len(extension) < 2 || extension[0] != '.' || strings.ContainsAny(extension, `/\`) {
-					return fmt.Errorf("language %s: extension %q should be a file name ending, such as .go", name, extension)
-				}
-			}
-		}
-		for _, patternName := range slices.Sorted(maps.Keys(l.Patterns)) {
-			p := l.Patterns[patternName]
-			if p == nil || p.Regex == nil {
-				continue
-			}
-			if *p.Regex == "" {
-				return fmt.Errorf("pattern %s/%s: the regex is empty, so it would match every line", name, patternName)
-			}
-			if _, err := regexp.Compile(*p.Regex); err != nil {
-				return fmt.Errorf("pattern %s/%s: %w", name, patternName, err)
-			}
-		}
-	}
-	return nil
 }

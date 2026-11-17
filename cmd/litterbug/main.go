@@ -28,6 +28,7 @@ const usageText = `Usage:
   litterbug --staged [flags]     find them in the lines staged for commit, as the hook does
   litterbug install-hook         block commits that add them, with a Git pre-commit hook
   litterbug uninstall-hook       remove that hook
+  litterbug init-config          write the default config into this repository, to edit
 
 Directories are walked, skipping what Git ignores and what the config or
 --exclude excludes. A file or directory named here is scanned even if
@@ -81,6 +82,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return installHook(ctx, args[1:], stdout, stderr)
 		case "uninstall-hook":
 			return uninstallHook(ctx, args[1:], stdout, stderr)
+		case "init-config":
+			return initConfig(args[1:], stdout, stderr)
 		}
 	}
 	o, err := parseArgs(args, stdout)
@@ -102,7 +105,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if o.staged {
 		scanner = scanStaged
 	}
-	findings, err := scanner(ctx, cwd, o, stderr)
+	findings, err := scanner(ctx, cwd, o)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -121,22 +124,17 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 }
 
 // scanPaths scans the files and directories o names, or cwd without any.
-// Config notices are written to notices.
-func scanPaths(ctx context.Context, cwd string, o options, notices io.Writer) ([]scan.Finding, error) {
+func scanPaths(ctx context.Context, cwd string, o options) ([]scan.Finding, error) {
 	targets, err := resolveTargets(cwd, o.paths)
 	if err != nil {
 		return nil, err
 	}
-	global, err := config.LoadGlobal(notices)
-	if err != nil {
-		return nil, err
-	}
-	return scanTargets(ctx, cwd, targets, global, o.langs, o.exclude)
+	return scanTargets(ctx, cwd, targets, o.langs, o.exclude)
 }
 
 // scanStaged scans the lines added in the staged changes of the work tree
 // cwd is in, with paths from cwd.
-func scanStaged(ctx context.Context, cwd string, o options, notices io.Writer) ([]scan.Finding, error) {
+func scanStaged(ctx context.Context, cwd string, o options) ([]scan.Finding, error) {
 	if len(o.paths) > 0 {
 		return nil, errors.New("--staged scans what is staged, so it takes no paths")
 	}
@@ -150,7 +148,7 @@ func scanStaged(ctx context.Context, cwd string, o options, notices io.Writer) (
 	if err != nil {
 		return nil, err
 	}
-	rules, err := config.Load(root, o.langs, notices)
+	rules, err := config.Load(root, o.langs)
 	if err != nil {
 		return nil, err
 	}
@@ -239,19 +237,20 @@ func repoRoot(dir string) string {
 	}
 }
 
-// scanTargets scans each target with the config of the repository it is
-// in, and returns all they find sorted, with their paths as the command
-// line gave them. A file named on the command line is read even if it is
-// excluded or ignored; a directory is walked with the config's excludes,
-// from its repository's root, and --exclude's, from cwd.
-func scanTargets(ctx context.Context, cwd string, targets []target, global config.Global, langs, flagExcludes []string) ([]scan.Finding, error) {
+// scanTargets scans each target with the config that applies in the
+// repository it is in, and returns all they find sorted, with their paths
+// as the command line gave them. A file named on the command line is read
+// even if it is excluded or ignored; a directory is walked with the
+// config's excludes, from its repository's root, and --exclude's, from
+// cwd.
+func scanTargets(ctx context.Context, cwd string, targets []target, langs, flagExcludes []string) ([]scan.Finding, error) {
 	rulesByRoot := map[string]config.Rules{}
 	var all []scan.Finding
 	for _, t := range targets {
 		rules, ok := rulesByRoot[t.root]
 		if !ok {
 			var err error
-			if rules, err = global.Rules(t.root, langs); err != nil {
+			if rules, err = config.Load(t.root, langs); err != nil {
 				return nil, err
 			}
 			rulesByRoot[t.root] = rules
@@ -315,4 +314,28 @@ func version() string {
 func fail(stderr io.Writer, err error) int {
 	_, _ = fmt.Fprintf(stderr, "litterbug: %v\n", err)
 	return exitError
+}
+
+// parseCommandArgs reads the flags of a command such as install-hook,
+// which take no other arguments. It reports whether the command is done,
+// and its status: after --help, or a mistake.
+func parseCommandArgs(flags *pflag.FlagSet, command string, args []string, stderr io.Writer) (status int, done bool) {
+	err := flags.Parse(args)
+	switch {
+	case errors.Is(err, pflag.ErrHelp):
+		return exitClean, true
+	case err != nil:
+		return fail(stderr, fmt.Errorf("%w\nRun litterbug %s --help for usage", err, command)), true
+	case flags.NArg() > 0:
+		return fail(stderr, fmt.Errorf("%s takes no arguments", command)), true
+	}
+	return 0, false
+}
+
+// shownPath is path from cwd when it is below cwd, and in full otherwise.
+func shownPath(cwd, path string) string {
+	if rel, err := filepath.Rel(cwd, path); err == nil && filepath.IsLocal(rel) {
+		return rel
+	}
+	return path
 }

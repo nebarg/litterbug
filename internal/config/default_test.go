@@ -82,7 +82,7 @@ func lineVariants(line, statement string) []string {
 }
 
 func TestDefaultPatterns(t *testing.T) {
-	f, err := parse("default.yml", defaultConfig)
+	f, err := parse(defaultConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -34,6 +34,12 @@ languages:
       pry: {regex: 'binding\.pry'}
 `
 
+// goConfig and phpConfig are repository configs with one language each.
+const (
+	goConfig  = "languages:\n  go:\n    extensions: [.go]\n    patterns:\n      fmt-print: {regex: 'fmt\\.Print'}\n"
+	phpConfig = "languages:\n  php:\n    extensions: [.php]\n    patterns:\n      var-dump: {regex: 'var_dump'}\n"
+)
+
 var testTree = map[string]string{
 	"main.go":       "package main\n\nfunc main() {\n\tfmt.Println(1)\n}\n",
 	"clean.go":      "package main\n",
@@ -176,7 +182,7 @@ func TestRunExclude(t *testing.T) {
 
 func TestRunUsesTheRepoConfigFromASubdirectory(t *testing.T) {
 	files := map[string]string{
-		config.RepoFile:     "exclude: [web/gen, '*.min.php']\nlanguages:\n  go: {enabled: false}\n",
+		config.RepoFile:     "exclude: [web/gen, '*.min.php']\n" + phpConfig,
 		"web/gen/out.php":   "var_dump($y);\n",
 		"web/admin.min.php": "var_dump($y);\n",
 	}
@@ -197,11 +203,11 @@ func TestRunUsesTheRepoConfigFromASubdirectory(t *testing.T) {
 func TestRunUsesTheConfigOfTheRepositoryEachPathIsIn(t *testing.T) {
 	dir := setup(t, map[string]string{
 		"loose.go":               "fmt.Println(1)\n",
-		"app/" + config.RepoFile: "exclude: [gen/**]\nlanguages:\n  php: {enabled: false}\n",
+		"app/" + config.RepoFile: "exclude: [gen/**]\n" + goConfig,
 		"app/main.go":            "fmt.Println(1)\n",
 		"app/index.php":          "<?php\nvar_dump($x);\n",
 		"app/gen/out.go":         "fmt.Println(1)\n",
-		"lib/" + config.RepoFile: "languages:\n  go: {enabled: false}\n",
+		"lib/" + config.RepoFile: phpConfig,
 		"lib/lib.go":             "fmt.Println(1)\n",
 		"lib/lib.php":            "<?php\nvar_dump($x);\n",
 	})
@@ -280,15 +286,16 @@ func TestRunHelpAndVersion(t *testing.T) {
 	}
 }
 
-func TestRunCreatesTheGlobalConfigOnFirstRun(t *testing.T) {
+func TestRunUsesTheBuiltInConfigWithoutOne(t *testing.T) {
 	setup(t, map[string]string{"main.go": "fmt.Println(1)\n"})
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
 	stdout, stderr, status := runCLI(t)
-	if !strings.Contains(stderr, "litterbug: created default config at ") || status != exitFound {
-		t.Fatalf("status %d, stderr %q", status, stderr)
+	if got, want := findingLines(stdout), []string{"main.go:1: fmt.Println(1)  [go/fmt-print]"}; !slices.Equal(got, want) || stderr != "" || status != exitFound {
+		t.Fatalf("status %d, stderr %q\n got  %q\n want %q", status, stderr, got, want)
 	}
-	if got, want := findingLines(stdout), []string{"main.go:1: fmt.Println(1)  [go/fmt-print]"}; !slices.Equal(got, want) {
-		t.Errorf("findings with the default config = %q, want %q", got, want)
+	if entries, err := os.ReadDir(home); err != nil || len(entries) > 0 {
+		t.Errorf("the config home has %v, %v; want nothing written to it", entries, err)
 	}
 }
 

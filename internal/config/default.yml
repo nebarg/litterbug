@@ -8,9 +8,14 @@
 # a call starts the line and allow \s* before the bracket.
 #
 # Set `enabled: false` on a language or a pattern to switch it off without
-# deleting it. A repository can override any of this in a .litterbug.yml at
-# its root: languages and patterns merge by name, and any other field it
-# sets replaces the one here.
+# deleting it.
+#
+# litterbug uses one config, never a mix: a repository's .litterbug.yml if
+# it has one, the global config (~/.config/litterbug/config.yml) if not,
+# and its built-in defaults, which this file started as, without either.
+# So this file needs everything you want checked. To take up the defaults
+# of a newer litterbug, run `litterbug init-config --force` (with --global
+# for the global config), which keeps this file as a .bak.
 
 # Files and directories to skip, written as in a .gitignore: a pattern
 # without a slash matches a name at any depth, such as vendor or '*_test.go',

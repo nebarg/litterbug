@@ -38,7 +38,7 @@ func installHook(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	flags := pflag.NewFlagSet("litterbug install-hook", pflag.ContinueOnError)
 	force := flags.Bool("force", false, "replace a pre-commit hook litterbug didn't install")
 	flags.Usage = func() { _, _ = fmt.Fprint(stdout, installUsage+flags.FlagUsages()) }
-	if status, done := parseHookArgs(flags, "install-hook", args, stderr); done {
+	if status, done := parseCommandArgs(flags, "install-hook", args, stderr); done {
 		return status
 	}
 	cwd, hooks, err := hooksDir(ctx)
@@ -67,7 +67,7 @@ func installHook(ctx context.Context, args []string, stdout, stderr io.Writer) i
 func uninstallHook(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := pflag.NewFlagSet("litterbug uninstall-hook", pflag.ContinueOnError)
 	flags.Usage = func() { _, _ = fmt.Fprint(stdout, uninstallUsage) }
-	if status, done := parseHookArgs(flags, "uninstall-hook", args, stderr); done {
+	if status, done := parseCommandArgs(flags, "uninstall-hook", args, stderr); done {
 		return status
 	}
 	cwd, hooks, err := hooksDir(ctx)
@@ -88,22 +88,6 @@ func uninstallHook(ctx context.Context, args []string, stdout, stderr io.Writer)
 	return exitClean
 }
 
-// parseHookArgs reads a hook command's flags, which take no other
-// arguments. It reports whether the command is done, and its status: after
-// --help, or a mistake.
-func parseHookArgs(flags *pflag.FlagSet, command string, args []string, stderr io.Writer) (status int, done bool) {
-	err := flags.Parse(args)
-	switch {
-	case errors.Is(err, pflag.ErrHelp):
-		return exitClean, true
-	case err != nil:
-		return fail(stderr, fmt.Errorf("%w\nRun litterbug %s --help for usage", err, command)), true
-	case flags.NArg() > 0:
-		return fail(stderr, fmt.Errorf("%s takes no arguments", command)), true
-	}
-	return 0, false
-}
-
 // hooksDir finds the current directory and the hooks directory of the
 // repository it is in.
 func hooksDir(ctx context.Context) (cwd, hooks string, err error) {
@@ -112,12 +96,4 @@ func hooksDir(ctx context.Context) (cwd, hooks string, err error) {
 	}
 	hooks, err = git.HooksDir(ctx, cwd)
 	return cwd, hooks, err
-}
-
-// shownPath is path from cwd when it is below cwd, and in full otherwise.
-func shownPath(cwd, path string) string {
-	if rel, err := filepath.Rel(cwd, path); err == nil && filepath.IsLocal(rel) {
-		return rel
-	}
-	return path
 }

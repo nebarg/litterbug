@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -167,7 +166,7 @@ func loadRules(t *testing.T) config.Rules {
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", home)
 	writeFiles(t, home, map[string]string{"litterbug/config.yml": testConfig})
-	rules, err := config.Load("", nil, io.Discard)
+	rules, err := config.Load("", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -126,14 +126,28 @@ pre-commit:
 
 ## Configuration
 
-litterbug reads its config from `~/.config/litterbug/config.yml`, or from
-`$XDG_CONFIG_HOME/litterbug/config.yml` when that variable is set. The first time it
-runs, it writes the default config there. A repository can override parts of it in a
-`.litterbug.yml` at its root.
+Without a config file, litterbug uses its built-in defaults, which cover Go, JavaScript
+and TypeScript (including `.vue` and `.svelte` files), and PHP.
+[internal/config/default.yml](internal/config/default.yml) lists their patterns. To
+change them, write the defaults out as a config file, then edit it:
 
-The default config covers Go, JavaScript and TypeScript (including `.vue` and `.svelte`
-files), and PHP. [internal/config/default.yml](internal/config/default.yml) lists its
-patterns.
+```sh
+litterbug init-config            # .litterbug.yml at the root of this repository
+litterbug init-config --global   # the global config, for repositories without their own
+```
+
+litterbug uses one config, never a mix of them:
+
+1. the repository's `.litterbug.yml`, if it has one;
+2. otherwise the global config, `~/.config/litterbug/config.yml`, or
+   `$XDG_CONFIG_HOME/litterbug/config.yml` when that variable is set;
+3. otherwise the built-in defaults.
+
+Because a repository's config is used whole, committing it gives everyone working in the
+repository the same checks, whatever their own global config says. Each file or
+directory litterbug scans uses the config of the repository it is in, so
+`litterbug ../other-repo` follows that repository's config rather than the current
+one's.
 
 ### Format
 
@@ -167,17 +181,13 @@ languages:
   pattern with a slash is a path from the repository root, such as `'dist/**'` or
   `src/Debug/Dumper.php`. YAML needs patterns that start with `*` to be quoted.
 
-An unknown key is an error, so a typo such as `enable: false` is reported rather than
-ignored.
+A config holds everything that is checked: a language or pattern it leaves out isn't
+scanned for. An unknown key is an error, so a typo such as `enable: false` is reported
+rather than ignored.
 
-### Repository overrides
-
-A `.litterbug.yml` changes only what it configures. Languages and patterns are merged by
-name, and any other field it sets replaces the global one. Each file or directory
-litterbug scans follows the `.litterbug.yml` of the repository it is in, so
-`litterbug ../other-repo` uses that repository's overrides rather than the current one's. The example below is for a
-Go command-line tool that also has some Python scripts. It switches off `fmt-print`,
-because `fmt.Println` is the tool's real output, and adds a `python` language:
+For example, a Go command-line tool whose real output uses `fmt.Println`, and which also
+has some Python scripts, could run `litterbug init-config`, then in its `.litterbug.yml`
+switch off `fmt-print`, skip test files, and add a `python` language:
 
 ```yaml
 exclude:
@@ -187,10 +197,16 @@ exclude:
 
 languages:
   go:
+    enabled: true
+    extensions: [.go]
     patterns:
       fmt-print:
         enabled: false
+        regex: '\bfmt\.Print(f|ln)?\s*\('
+      # The other Go patterns, and the other languages, as init-config wrote them.
+
   python:
+    enabled: true
     extensions: [.py]
     patterns:
       print:
@@ -199,7 +215,14 @@ languages:
         regex: '\bbreakpoint\s*\(|\bpdb\.set_trace\s*\('
 ```
 
-Because `exclude` replaces the global list, the example repeats the default entries.
+### Taking up new defaults
+
+A config file is a copy of the defaults as they were when it was written, so it doesn't
+pick up patterns that later versions of litterbug add or fix. The release notes say when
+the defaults change. To take them up, run `litterbug init-config --force`, with
+`--global` for the global config. It writes the new defaults and keeps the old file as a
+`.bak`, so you can copy your changes across. For a repository's config, `git diff` shows
+which changes to put back.
 
 ## Limitations
 
@@ -209,6 +232,3 @@ Because `exclude` replaces the global list, the example repeats the default entr
 - The PHP `dump-die` pattern also matches the definition of a function or method named
   `dd` or `dump`, as in a debugging helper. Exclude that file, or switch the pattern off
   in the repository's config.
-- The global config is only written when it doesn't exist, so patterns added to
-  litterbug's defaults in later versions won't appear in it. To pick them up, delete the
-  file and litterbug will write a new one.
