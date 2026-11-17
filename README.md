@@ -8,5 +8,4 @@ You can add a language or a pattern, or switch one off, by editing the config.
 There's no code to change.
 
 > [!NOTE]
-> litterbug is under construction. See [PLAN.md](PLAN.md) for the design and build
-> order.
+> litterbug is under construction.
