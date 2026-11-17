@@ -1,0 +1,327 @@
+package main
+
+import (
+	"bytes"
+	"maps"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+	"unicode/utf8"
+
+	"github.com/nebarg/litterbug/internal/config"
+	"github.com/nebarg/litterbug/internal/scan"
+)
+
+const testConfig = `
+exclude: [vendor]
+languages:
+  go:
+    extensions: [.go]
+    patterns:
+      fmt-print: {regex: '\bfmt\.Print'}
+  php:
+    extensions: [.php]
+    patterns:
+      var-dump: {regex: '\bvar_dump\s*\('}
+  ruby:
+    enabled: false
+    extensions: [.rb]
+    patterns:
+      pry: {regex: 'binding\.pry'}
+`
+
+var testTree = map[string]string{
+	"main.go":       "package main\n\nfunc main() {\n\tfmt.Println(1)\n}\n",
+	"clean.go":      "package main\n",
+	"web/index.php": "<?php\nvar_dump($x);\n",
+	"vendor/lib.go": "fmt.Println(1)\n",
+	"app.rb":        "binding.pry\n",
+	"notes.txt":     "fmt.Println(1)\n",
+}
+
+const (
+	mainFinding = "main.go:4: fmt.Println(1)  [go/fmt-print]"
+	webFinding  = "web/index.php:2: var_dump($x);  [php/var-dump]"
+)
+
+func TestRunReportsFindings(t *testing.T) {
+	setup(t, testTree)
+	stdout, stderr, status := runCLI(t)
+	if want := mainFinding + "\n" + webFinding + "\n\n2 debug statements in 2 files\n"; stdout != want || stderr != "" || status != exitFound {
+		t.Fatalf("status %d\nstdout %q\nstderr %q\nwant stdout %q", status, stdout, stderr, want)
+	}
+}
+
+func TestRunWithNothingFound(t *testing.T) {
+	setup(t, map[string]string{"clean.go": "package main\n", "notes.txt": "fmt.Println(1)\n"})
+	stdout, stderr, status := runCLI(t)
+	if stdout != "No debug statements found.\n" || stderr != "" || status != exitClean {
+		t.Fatalf("status %d\nstdout %q\nstderr %q", status, stdout, stderr)
+	}
+}
+
+func TestRunCountsOneOfEach(t *testing.T) {
+	setup(t, map[string]string{"main.go": "fmt.Println(1)\n"})
+	stdout, _, status := runCLI(t)
+	if want := "main.go:1: fmt.Println(1)  [go/fmt-print]\n\n1 debug statement in 1 file\n"; stdout != want || status != exitFound {
+		t.Fatalf("status %d, stdout %q", status, stdout)
+	}
+}
+
+func TestRunScansThePathsGiven(t *testing.T) {
+	dir := setup(t, testTree)
+	for _, c := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"web"}, []string{webFinding}},
+		{[]string{"./web/"}, []string{webFinding}},
+		{[]string{filepath.Join(dir, "web")}, []string{filepath.ToSlash(dir) + "/" + webFinding}},
+		{[]string{"main.go"}, []string{mainFinding}},
+		{[]string{"./main.go"}, []string{mainFinding}},
+		{[]string{"web", "main.go"}, []string{mainFinding, webFinding}},
+		{[]string{".", "main.go"}, []string{mainFinding, webFinding}},
+		{[]string{"main.go", "main.go"}, []string{mainFinding}},
+		{[]string{"vendor/lib.go"}, []string{"vendor/lib.go:1: fmt.Println(1)  [go/fmt-print]"}},
+		{[]string{"vendor"}, []string{"vendor/lib.go:1: fmt.Println(1)  [go/fmt-print]"}},
+		{[]string{"notes.txt"}, nil},
+	} {
+		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
+			stdout, stderr, status := runCLI(t, c.args...)
+			if got := findingLines(stdout); !slices.Equal(got, c.want) || stderr != "" || status != wantStatus(c.want) {
+				t.Fatalf("status %d, stderr %q\n got  %q\n want %q", status, stderr, got, c.want)
+			}
+		})
+	}
+}
+
+func TestRunLang(t *testing.T) {
+	setup(t, testTree)
+	for _, c := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"--lang", "ruby"}, []string{"app.rb:1: binding.pry  [ruby/pry]"}},
+		{[]string{"-l", "go,php"}, []string{mainFinding, webFinding}},
+		{[]string{"--lang", "go", "--lang", "php"}, []string{mainFinding, webFinding}},
+		{[]string{"--lang", " php, ruby "}, []string{"app.rb:1: binding.pry  [ruby/pry]", webFinding}},
+	} {
+		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
+			stdout, stderr, status := runCLI(t, c.args...)
+			if got := findingLines(stdout); !slices.Equal(got, c.want) || stderr != "" || status != wantStatus(c.want) {
+				t.Fatalf("status %d, stderr %q\n got  %q\n want %q", status, stderr, got, c.want)
+			}
+		})
+	}
+}
+
+func TestRunExclude(t *testing.T) {
+	setup(t, testTree)
+	for _, c := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"-e", "web"}, []string{mainFinding}},
+		{[]string{"--exclude", "web/index.php"}, []string{mainFinding}},
+		{[]string{"-e", "main.go"}, []string{webFinding}},
+		{[]string{"-e", "main.go", "-e", "index.php"}, nil},
+		{[]string{"-e", "web", "web"}, []string{webFinding}},
+		{[]string{"-e", "*.php"}, []string{mainFinding}},
+		{[]string{"-e", "w*/"}, []string{mainFinding}},
+		{[]string{"-e", "**/index.php"}, []string{mainFinding}},
+		{[]string{"-e", "web/**"}, []string{mainFinding}},
+		{[]string{"-e", "*.go", "-e", "*.php"}, nil},
+	} {
+		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
+			stdout, stderr, status := runCLI(t, c.args...)
+			if got := findingLines(stdout); !slices.Equal(got, c.want) || stderr != "" || status != wantStatus(c.want) {
+				t.Fatalf("status %d, stderr %q\n got  %q\n want %q", status, stderr, got, c.want)
+			}
+		})
+	}
+}
+
+func TestRunUsesTheRepoConfigFromASubdirectory(t *testing.T) {
+	files := map[string]string{
+		config.RepoFile:     "exclude: [web/gen, '*.min.php']\nlanguages:\n  go: {enabled: false}\n",
+		"web/gen/out.php":   "var_dump($y);\n",
+		"web/admin.min.php": "var_dump($y);\n",
+	}
+	maps.Copy(files, testTree)
+	dir := setup(t, files)
+	gitInit(t, dir)
+	stdout, _, _ := runCLI(t)
+	if got, want := findingLines(stdout), []string{webFinding}; !slices.Equal(got, want) {
+		t.Errorf("from the root:\n got  %q\n want %q", got, want)
+	}
+	t.Chdir(filepath.Join(dir, "web"))
+	stdout, _, _ = runCLI(t)
+	if got, want := findingLines(stdout), []string{"index.php:2: var_dump($x);  [php/var-dump]"}; !slices.Equal(got, want) {
+		t.Errorf("from web:\n got  %q\n want %q", got, want)
+	}
+}
+
+func TestRunErrors(t *testing.T) {
+	dir := setup(t, testTree)
+	for _, c := range []struct {
+		args []string
+		want []string // in stderr
+	}{
+		{[]string{"missing"}, []string{"litterbug: ", "missing", "no such file or directory"}},
+		{[]string{"main.go", "missing"}, []string{"missing"}},
+		{[]string{"--wat"}, []string{"unknown flag: --wat", "Run litterbug --help"}},
+		{[]string{"--lang", "python"}, []string{`unknown language "python"`}},
+		{[]string{"--lang", "go,"}, []string{"--lang needs a language name"}},
+		{[]string{"-e", "/"}, []string{"--exclude", "needs a file or directory"}},
+		{[]string{"-e", "[a"}, []string{"--exclude", "not a valid pattern"}},
+	} {
+		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
+			stdout, stderr, status := runCLI(t, c.args...)
+			if status != exitError || stdout != "" {
+				t.Errorf("status %d, stdout %q", status, stdout)
+			}
+			for _, want := range c.want {
+				if !strings.Contains(stderr, want) {
+					t.Errorf("stderr %q doesn't mention %q", stderr, want)
+				}
+			}
+		})
+	}
+
+	gitInit(t, dir)
+	writeFiles(t, dir, map[string]string{config.RepoFile: "languages:\n  go: {enable: false}\n"})
+	if stdout, stderr, status := runCLI(t); status != exitError || stdout != "" || !strings.Contains(stderr, config.RepoFile) {
+		t.Errorf("invalid repo config: status %d, stdout %q, stderr %q", status, stdout, stderr)
+	}
+}
+
+func TestRunHelpAndVersion(t *testing.T) {
+	setup(t, testTree)
+	for _, flag := range []string{"--help", "-h"} {
+		stdout, stderr, status := runCLI(t, flag)
+		if status != exitClean || stderr != "" || !strings.HasPrefix(stdout, "Usage:") || !strings.Contains(stdout, "--lang") || !strings.Contains(stdout, "--exclude") {
+			t.Errorf("%s: status %d, stderr %q, stdout %q", flag, status, stderr, stdout)
+		}
+	}
+	stdout, stderr, status := runCLI(t, "--version", "missing")
+	if status != exitClean || stderr != "" || !regexp.MustCompile(`^litterbug \S+\n$`).MatchString(stdout) {
+		t.Errorf("--version: status %d, stderr %q, stdout %q", status, stderr, stdout)
+	}
+}
+
+func TestRunCreatesTheGlobalConfigOnFirstRun(t *testing.T) {
+	setup(t, map[string]string{"main.go": "fmt.Println(1)\n"})
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	stdout, stderr, status := runCLI(t)
+	if !strings.Contains(stderr, "litterbug: created default config at ") || status != exitFound {
+		t.Fatalf("status %d, stderr %q", status, stderr)
+	}
+	if got, want := findingLines(stdout), []string{"main.go:1: fmt.Println(1)  [go/fmt-print]"}; !slices.Equal(got, want) {
+		t.Errorf("findings with the default config = %q, want %q", got, want)
+	}
+}
+
+func TestDisplayLine(t *testing.T) {
+	x := func(n int) string { return strings.Repeat("x", n) }
+	for _, c := range []struct {
+		name, text string
+		start, end int
+		want       string
+	}{
+		{"trimmed", "\tfmt.Println(1)  ", 1, 10, "fmt.Println(1)"},
+		{"control characters", "x := \"a\x1b[31mred\"", 0, 1, "x := \"a [31mred\""},
+		{"as long as can be shown", x(maxLineLength), 0, 1, x(maxLineLength)},
+		{"a match at the start of a long line", x(maxLineLength) + "y", 0, 1, x(maxLineLength-1) + "…"},
+		{"a match at the end of a long line", x(300) + "console.log(1)", 300, 312, "…" + x(145) + "console.log(1)"},
+		{"a match in the middle", x(200) + "dd(1)" + strings.Repeat("y", 200), 200, 203, "…" + x(77) + "dd(1)" + strings.Repeat("y", 76) + "…"},
+		{"characters, not bytes", strings.Repeat("é", 300) + "dd(1)", 600, 603, "…" + strings.Repeat("é", 154) + "dd(1)"},
+		{"offsets before trimming", "\t\t" + x(300) + "dd(1)", 302, 305, "…" + x(154) + "dd(1)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := displayLine(c.text, c.start, c.end)
+			if got != c.want {
+				t.Errorf("displayLine = %q, want %q", got, c.want)
+			}
+			if n := utf8.RuneCountInString(got); n > maxLineLength {
+				t.Errorf("%d characters shown", n)
+			}
+		})
+	}
+	// A match longer than the window shows from its start.
+	got := displayLine(strings.Repeat("a", 100)+strings.Repeat("b", 300)+strings.Repeat("c", 100), 100, 400)
+	if want := "…" + strings.Repeat("b", maxLineLength-2) + "…"; got != want {
+		t.Errorf("a long match = %q, want %q", got, want)
+	}
+}
+
+func TestReportCleansPaths(t *testing.T) {
+	var out bytes.Buffer
+	report(&out, []scan.Finding{{Path: "a\x1b[2Jb.go", Line: 3, Text: "fmt.Println(1)", Rule: config.Rule{Language: "go", Name: "fmt-print"}}})
+	if want := "a [2Jb.go:3: fmt.Println(1)  [go/fmt-print]\n\n1 debug statement in 1 file\n"; out.String() != want {
+		t.Errorf("report = %q, want %q", out.String(), want)
+	}
+}
+
+// setup writes files to a new directory and makes it the working
+// directory, with testConfig as the global config and the user's Git
+// configuration kept out. It returns the directory.
+func setup(t *testing.T, files map[string]string) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	writeFiles(t, home, map[string]string{"litterbug/config.yml": testConfig})
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	dir := t.TempDir()
+	writeFiles(t, dir, files)
+	t.Chdir(dir)
+	return dir
+}
+
+func runCLI(t *testing.T, args ...string) (stdout, stderr string, status int) {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	status = run(t.Context(), args, &out, &errOut)
+	return out.String(), errOut.String(), status
+}
+
+// findingLines are the findings stdout lists, without the count after
+// them, or nil when it reports none.
+func findingLines(stdout string) []string {
+	list, _, _ := strings.Cut(stdout, "\n\n")
+	if list == "" || strings.HasPrefix(list, "No debug statements found.") {
+		return nil
+	}
+	return strings.Split(list, "\n")
+}
+
+func wantStatus(findings []string) int {
+	if len(findings) > 0 {
+		return exitFound
+	}
+	return exitClean
+}
+
+func writeFiles(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for name, content := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func gitInit(t *testing.T, dir string) {
+	t.Helper()
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+}

@@ -14,17 +14,20 @@ type Finding struct {
 	Line int
 	Text string // the line, without its ending
 	Rule config.Rule
+	// Start and End are the byte offsets in Text of what Rule matched, so
+	// the match can be shown from a line too long to show whole.
+	Start, End int
 }
 
-// matchLine returns the first of rules that matches line, so a line that
-// several rules match is reported once.
-func matchLine(rules []config.Rule, line string) (config.Rule, bool) {
+// matchLine finds the first of rules that matches line, so a line that
+// several rules match is reported once. The finding has no Path or Line.
+func matchLine(rules []config.Rule, line string) (Finding, bool) {
 	for _, rule := range rules {
-		if rule.Regex.MatchString(line) {
-			return rule, true
+		if match := rule.Regex.FindStringIndex(line); match != nil {
+			return Finding{Text: line, Rule: rule, Start: match[0], End: match[1]}, true
 		}
 	}
-	return config.Rule{}, false
+	return Finding{}, false
 }
 
 // findInContent finds the lines of a file's content that match its rules.
@@ -34,8 +37,9 @@ func findInContent(path, content string, rules []config.Rule) []Finding {
 	for line := range strings.Lines(content) {
 		number++
 		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
-		if rule, ok := matchLine(rules, line); ok {
-			findings = append(findings, Finding{Path: path, Line: number, Text: line, Rule: rule})
+		if f, ok := matchLine(rules, line); ok {
+			f.Path, f.Line = path, number
+			findings = append(findings, f)
 		}
 	}
 	return findings

@@ -18,19 +18,24 @@ var (
 func TestMatchLineReportsTheFirstMatchingRule(t *testing.T) {
 	rules := []config.Rule{fmtPrint, logPrint, spew}
 	for _, c := range []struct {
-		line string
-		want string // the rule's name, or empty for no match
+		line       string
+		want       string // the rule's name, or empty for no match
+		start, end int
 	}{
-		{`fmt.Println(x)`, "fmt-print"},
-		{`log.Println(x)`, "log-print"},
-		{`spew.Dump(x)`, "spew"},
-		{`fmt.Println(x); spew.Dump(x)`, "fmt-print"},
-		{`x := 1`, ""},
-		{``, ""},
+		{`fmt.Println(x)`, "fmt-print", 0, 9},
+		{`log.Println(x)`, "log-print", 0, 9},
+		{`spew.Dump(x)`, "spew", 0, 5},
+		{`x := 1; spew.Dump(x)`, "spew", 8, 13},
+		{`spew.Dump(x); fmt.Println(x)`, "fmt-print", 14, 23},
+		{`x := 1`, "", 0, 0},
+		{``, "", 0, 0},
 	} {
-		rule, ok := matchLine(rules, c.line)
-		if ok != (c.want != "") || rule.Name != c.want {
-			t.Errorf("matchLine(%q) = %q, %v; want %q", c.line, rule.Name, ok, c.want)
+		f, ok := matchLine(rules, c.line)
+		if ok != (c.want != "") || f.Rule.Name != c.want || f.Start != c.start || f.End != c.end {
+			t.Errorf("matchLine(%q) = %q at %d:%d, %v; want %q at %d:%d", c.line, f.Rule.Name, f.Start, f.End, ok, c.want, c.start, c.end)
+		}
+		if ok && f.Text != c.line {
+			t.Errorf("matchLine(%q) text = %q", c.line, f.Text)
 		}
 	}
 	if _, ok := matchLine(nil, `fmt.Println(x)`); ok {
