@@ -165,15 +165,43 @@ func globalIgnoreFile() string {
 	return value
 }
 
-// ignoresCase reads core.ignoreCase for the repository at root, from its
-// own configuration or else the user's. Git sets it in a repository it
-// creates on a file system that ignores case, as macOS's does by default.
-func ignoresCase(root string) bool {
+// commonDir is the directory of the repository whose work tree is root
+// that holds what all its work trees share, such as info/exclude and
+// config. It is root/.git, unless .git is a file, as in a linked work tree
+// or a submodule, naming the repository's directory as "gitdir: path". A
+// linked work tree's directory names the common one in its commondir file.
+func commonDir(root string) string {
+	dotGit := filepath.Join(root, ".git")
+	content, err := os.ReadFile(dotGit) // Fails for a directory.
+	gitDir, ok := strings.CutPrefix(strings.TrimRight(string(content), "\r\n"), "gitdir: ")
+	if err != nil || !ok {
+		return dotGit
+	}
+	gitDir = pathFrom(root, gitDir)
+	if common, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+		return pathFrom(gitDir, strings.TrimRight(string(common), "\r\n"))
+	}
+	return gitDir
+}
+
+// pathFrom is path, if it is absolute, or else path from dir.
+func pathFrom(dir, path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(dir, path)
+}
+
+// ignoresCase reads core.ignoreCase for the repository whose common
+// directory is common, from its own configuration or else the user's. Git
+// sets it in a repository it creates on a file system that ignores case,
+// as macOS's does by default.
+func ignoresCase(common string) bool {
 	var files []string
 	if home, err := os.UserHomeDir(); err == nil {
 		files = userConfigFiles(home)
 	}
-	value, _ := lastConfigValue(append(files, filepath.Join(root, ".git", "config")), "core", "ignorecase")
+	value, _ := lastConfigValue(append(files, filepath.Join(common, "config")), "core", "ignorecase")
 	return configBool(value)
 }
 

@@ -99,6 +99,35 @@ func TestRunScansThePathsGiven(t *testing.T) {
 	}
 }
 
+func TestRunScansANamedFileAWalkWouldSkip(t *testing.T) {
+	setup(t, map[string]string{"big.go": "fmt.Println(1)\n" + strings.Repeat("x", 2<<20) + "\n"})
+	if err := os.Symlink("big.go", "link.go"); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if stdout, stderr, status := runCLI(t); stdout != "No debug statements found.\n" || stderr != "" || status != exitClean {
+		t.Errorf("walking: status %d, stdout %q, stderr %q", status, stdout, stderr)
+	}
+	stdout, stderr, status := runCLI(t, "big.go", "link.go")
+	want := []string{"big.go:1: fmt.Println(1)  [go/fmt-print]", "link.go:1: fmt.Println(1)  [go/fmt-print]"}
+	if got := findingLines(stdout); !slices.Equal(got, want) || stderr != "" || status != exitFound {
+		t.Errorf("naming them: status %d, stderr %q\n got  %q\n want %q", status, stderr, got, want)
+	}
+}
+
+func TestRunReportsANamedFileItCannotRead(t *testing.T) {
+	setup(t, map[string]string{"locked.go": "fmt.Println(1)\n"})
+	if err := os.Chmod("locked.go", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.ReadFile("locked.go"); err == nil {
+		t.Skip("file permissions aren't enforced for this user")
+	}
+	stdout, stderr, status := runCLI(t, "locked.go")
+	if status != exitError || stdout != "" || !strings.Contains(stderr, "locked.go: permission denied") {
+		t.Errorf("status %d, stdout %q, stderr %q", status, stdout, stderr)
+	}
+}
+
 func TestRunLang(t *testing.T) {
 	setup(t, testTree)
 	for _, c := range []struct {
@@ -162,6 +191,44 @@ func TestRunUsesTheRepoConfigFromASubdirectory(t *testing.T) {
 	stdout, _, _ = runCLI(t)
 	if got, want := findingLines(stdout), []string{"index.php:2: var_dump($x);  [php/var-dump]"}; !slices.Equal(got, want) {
 		t.Errorf("from web:\n got  %q\n want %q", got, want)
+	}
+}
+
+func TestRunUsesTheConfigOfTheRepositoryEachPathIsIn(t *testing.T) {
+	dir := setup(t, map[string]string{
+		"loose.go":               "fmt.Println(1)\n",
+		"app/" + config.RepoFile: "exclude: [gen/**]\nlanguages:\n  php: {enabled: false}\n",
+		"app/main.go":            "fmt.Println(1)\n",
+		"app/index.php":          "<?php\nvar_dump($x);\n",
+		"app/gen/out.go":         "fmt.Println(1)\n",
+		"lib/" + config.RepoFile: "languages:\n  go: {enabled: false}\n",
+		"lib/lib.go":             "fmt.Println(1)\n",
+		"lib/lib.php":            "<?php\nvar_dump($x);\n",
+	})
+	gitInit(t, filepath.Join(dir, "app"))
+	gitInit(t, filepath.Join(dir, "lib"))
+	for _, c := range []struct {
+		from string
+		args []string
+		want []string
+	}{
+		{".", []string{"app", "lib/lib.go", "lib/lib.php", "loose.go"}, []string{
+			"app/main.go:1: fmt.Println(1)  [go/fmt-print]",
+			"lib/lib.php:2: var_dump($x);  [php/var-dump]",
+			"loose.go:1: fmt.Println(1)  [go/fmt-print]",
+		}},
+		{"app", []string{".", "../lib"}, []string{
+			"../lib/lib.php:2: var_dump($x);  [php/var-dump]",
+			"main.go:1: fmt.Println(1)  [go/fmt-print]",
+		}},
+	} {
+		t.Run(c.from+": "+strings.Join(c.args, " "), func(t *testing.T) {
+			t.Chdir(filepath.Join(dir, c.from))
+			stdout, stderr, status := runCLI(t, c.args...)
+			if got := findingLines(stdout); !slices.Equal(got, c.want) || stderr != "" || status != exitFound {
+				t.Fatalf("status %d, stderr %q\n got  %q\n want %q", status, stderr, got, c.want)
+			}
+		})
 	}
 }
 

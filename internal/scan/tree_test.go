@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/nebarg/litterbug/internal/config"
@@ -103,25 +105,50 @@ func TestFile(t *testing.T) {
 		"main.go":     "x := 1\nfmt.Println(x)\n",
 		"notes.txt":   "fmt.Println(x)\n",
 		"binary.go":   "\x00fmt.Println(x)\n",
+		"big.go":      "fmt.Println(x)\n" + strings.Repeat("x", 2<<20) + "\n", // Over the size limit of a walk.
 		"Upper.GO":    "fmt.Println(x)\n",
 		"clean.php":   "<?php\n",
 		"nested/a.go": "fmt.Println(x)\n",
 	})
+	if err := os.Symlink("main.go", filepath.Join(dir, "link.go")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
 	for path, want := range map[string][]string{
 		"main.go":     {"main.go:2 go/fmt-print"},
 		"Upper.GO":    {"Upper.GO:1 go/fmt-print"},
 		"nested/a.go": {"nested/a.go:1 go/fmt-print"},
+		"binary.go":   {"binary.go:1 go/fmt-print"},
+		"big.go":      {"big.go:1 go/fmt-print"},
+		"link.go":     {"link.go:2 go/fmt-print"},
 		"notes.txt":   nil,
-		"binary.go":   nil,
 		"clean.php":   nil,
-		"missing.go":  nil,
+		"missing.txt": nil, // Without rules for it, it isn't read.
 	} {
 		t.Run(path, func(t *testing.T) {
-			t.Chdir(dir)
-			if got := describe(File(filepath.FromSlash(path), rules)); !slices.Equal(got, want) {
-				t.Errorf("findings = %v, want %v", got, want)
+			findings, err := File(filepath.Join(dir, filepath.FromSlash(path)), path, rules)
+			if got := describe(findings); err != nil || !slices.Equal(got, want) {
+				t.Errorf("findings = %v, %v; want %v", got, err, want)
 			}
 		})
+	}
+}
+
+func TestFileReportsAFileItCannotRead(t *testing.T) {
+	rules := loadRules(t)
+	dir := t.TempDir()
+	if _, err := File(filepath.Join(dir, "missing.go"), "missing.go", rules); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a missing file: %v", err)
+	}
+	locked := filepath.Join(dir, "locked.go")
+	writeFiles(t, dir, map[string]string{"locked.go": "fmt.Println(x)\n"})
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.ReadFile(locked); err == nil {
+		t.Skip("file permissions aren't enforced for this user")
+	}
+	if _, err := File(locked, "locked.go", rules); !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("an unreadable file: %v", err)
 	}
 }
 

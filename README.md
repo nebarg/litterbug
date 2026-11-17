@@ -173,7 +173,9 @@ ignored.
 ### Repository overrides
 
 A `.litterbug.yml` changes only what it configures. Languages and patterns are merged by
-name, and any other field it sets replaces the global one. The example below is for a
+name, and any other field it sets replaces the global one. Each file or directory
+litterbug scans follows the `.litterbug.yml` of the repository it is in, so
+`litterbug ../other-repo` uses that repository's overrides rather than the current one's. The example below is for a
 Go command-line tool that also has some Python scripts. It switches off `fmt-print`,
 because `fmt.Println` is the tool's real output, and adds a `python` language:
 

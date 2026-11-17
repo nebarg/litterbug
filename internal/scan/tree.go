@@ -3,6 +3,7 @@ package scan
 import (
 	"cmp"
 	"context"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -65,18 +66,24 @@ func Tree(ctx context.Context, dir string, exclude walk.Exclude, rules config.Ru
 }
 
 // File finds the debug statements in the file at path, if rules have
-// patterns for it, with path, slash-separated, as their Path. It skips the
-// files Tree skips.
-func File(path string, rules config.Rules) []Finding {
+// patterns for it, giving them display as their Path. As the file was
+// named rather than found by a walk, it is read whatever its size or
+// content, through a symbolic link, and failing to read it is an error.
+func File(path, display string, rules config.Rules) ([]Finding, error) {
 	fileRules := rules.For(path)
 	if len(fileRules) == 0 {
-		return nil
+		return nil, nil
 	}
-	return findInFile(path, filepath.ToSlash(path), fileRules)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return findInContent(display, string(content), fileRules), nil
 }
 
-// findInFile finds the debug statements in the file at path, giving them
-// display as their Path.
+// findInFile finds the debug statements in a file Tree found at path,
+// giving them display as their Path. It skips the files walk.ReadText
+// skips.
 func findInFile(path, display string, rules []config.Rule) []Finding {
 	content, ok := walk.ReadText(path)
 	if !ok {

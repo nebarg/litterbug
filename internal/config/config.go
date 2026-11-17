@@ -46,16 +46,28 @@ type pattern struct {
 	Regex   *string `yaml:"regex"`
 }
 
-// Load reads the global config, creating it with the defaults if it is
-// missing, and merges in the RepoFile at repoRoot if there is one. An empty
-// repoRoot is outside any repository. langs, from the command line, picks
-// the languages to scan in place of those the config enables. Notices,
-// such as the global config being created, are written to notices.
-func Load(repoRoot string, langs []string, notices io.Writer) (Rules, error) {
-	merged, err := loadGlobal(notices)
+// Global is the global config, which each repository's config overrides.
+type Global struct {
+	base file
+}
+
+// LoadGlobal reads the global config, creating it with the defaults if it
+// is missing. Notices, such as the global config being created, are
+// written to notices.
+func LoadGlobal(notices io.Writer) (Global, error) {
+	base, err := loadGlobal(notices)
 	if err != nil {
-		return Rules{}, err
+		return Global{}, err
 	}
+	return Global{base}, nil
+}
+
+// Rules merges the RepoFile at repoRoot, if there is one, into the global
+// config, and compiles the result. An empty repoRoot is outside any
+// repository. langs, from the command line, picks the languages to scan in
+// place of those the config enables.
+func (g Global) Rules(repoRoot string, langs []string) (Rules, error) {
+	merged := g.base
 	if repoRoot != "" {
 		repo, found, err := readFile(filepath.Join(repoRoot, RepoFile))
 		if err != nil {
@@ -66,6 +78,16 @@ func Load(repoRoot string, langs []string, notices io.Writer) (Rules, error) {
 		}
 	}
 	return compile(merged, langs)
+}
+
+// Load reads the global config and returns the rules for the repository
+// at repoRoot, as LoadGlobal and Rules do.
+func Load(repoRoot string, langs []string, notices io.Writer) (Rules, error) {
+	global, err := LoadGlobal(notices)
+	if err != nil {
+		return Rules{}, err
+	}
+	return global.Rules(repoRoot, langs)
 }
 
 // loadGlobal reads the global config. When it is missing, it is created

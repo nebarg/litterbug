@@ -76,7 +76,8 @@ func (w *walker) walk(rel string, scope ignoreScope) error {
 			if err := w.walk(child, sub); err != nil {
 				return err
 			}
-		case entry.Type().IsRegular() && !w.exclude.skips(child, false) && !scope.ignores(segments, false):
+		// .git is a file in a linked work tree or a submodule, and Git's own.
+		case entry.Type().IsRegular() && name != ".git" && !w.exclude.skips(child, false) && !scope.ignores(segments, false):
 			w.add(child)
 		}
 	}
@@ -85,10 +86,11 @@ func (w *walker) walk(rel string, scope ignoreScope) error {
 
 // repoScope starts the scope of a repository at its root.
 func (w *walker) repoScope(root string) ignoreScope {
+	common := commonDir(root)
 	return ignoreScope{
 		inRepo:   true,
-		foldCase: ignoresCase(root),
-		rules:    withIgnoreFile(w.global, filepath.Join(root, ".git", "info", "exclude"), 0),
+		foldCase: ignoresCase(common),
+		rules:    withIgnoreFile(w.global, filepath.Join(common, "info", "exclude"), 0),
 	}
 }
 

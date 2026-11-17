@@ -95,6 +95,40 @@ func testIgnoreRulesMatchGit(t *testing.T, userIgnoreCase, repoIgnoreCase string
 	}
 }
 
+// TestIgnoreRulesOfAGitFile checks the work trees whose .git is a file
+// naming the repository's directory: a linked work tree, whose
+// info/exclude and config are the main work tree's, and one made with
+// --separate-git-dir, as a submodule is, whose are its own.
+func TestIgnoreRulesOfAGitFile(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("Git is unavailable")
+	}
+	keepGitConfigOut(t)
+	dir := t.TempDir()
+	main := filepath.Join(dir, "main")
+	writeFiles(t, main, map[string]string{".gitignore": "\n"})
+	gitInit(t, main)
+	git(t, main, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "--allow-empty", "-m", "first")
+	git(t, main, "worktree", "add", "-q", filepath.Join(dir, "linked"))
+	git(t, dir, "init", "-q", "--separate-git-dir", filepath.Join(dir, "separate.git"), "separate")
+
+	for _, workTree := range []string{"linked", "separate"} {
+		t.Run(workTree, func(t *testing.T) {
+			path := filepath.Join(dir, workTree)
+			exclude := strings.TrimSpace(string(git(t, path, "rev-parse", "--git-path", "info/exclude")))
+			if !filepath.IsAbs(exclude) {
+				exclude = filepath.Join(path, exclude)
+			}
+			writeFiles(t, filepath.Dir(exclude), map[string]string{filepath.Base(exclude): "excluded.go\n"})
+			git(t, path, "config", "core.ignoreCase", "true")
+			writeFiles(t, path, map[string]string{".gitignore": "LOUD.go\n", "loud.go": "x\n", "excluded.go": "x\n", "kept.go": "x\n"})
+			if got, want := listFiles(t, path, Exclude{}), []string{".gitignore", "kept.go"}; !slices.Equal(got, want) {
+				t.Fatalf("files = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
 func git(t *testing.T, dir string, args ...string) []byte {
 	t.Helper()
 	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()

@@ -184,6 +184,35 @@ func TestLoadMergesTheRepoConfig(t *testing.T) {
 	}
 }
 
+func TestGlobalGivesTheRulesOfEachRepository(t *testing.T) {
+	useGlobalConfig(t, testGlobal)
+	global, err := LoadGlobal(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutGo, withoutPHP := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(withoutGo, RepoFile), "languages:\n  go: {enabled: false}\n")
+	writeFile(t, filepath.Join(withoutPHP, RepoFile), "languages:\n  php: {enabled: false}\n")
+	// Outside a repository last, to show the repositories' configs left
+	// the global one as it was.
+	for _, c := range []struct {
+		root string
+		want []string
+	}{
+		{withoutGo, []string{"php/var-dump"}},
+		{withoutPHP, []string{"go/fmt-print", "go/spew"}},
+		{"", []string{"go/fmt-print", "go/spew", "php/var-dump"}},
+	} {
+		rules, err := global.Rules(c.root, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := slices.Concat(ruleNames(rules, "a.go"), ruleNames(rules, "a.php")); !slices.Equal(got, c.want) {
+			t.Errorf("rules in %q = %v, want %v", c.root, got, c.want)
+		}
+	}
+}
+
 func TestLoadReadsAnEmptyRepoConfig(t *testing.T) {
 	useGlobalConfig(t, testGlobal)
 	root := t.TempDir()

@@ -65,6 +65,7 @@ type target struct {
 	given string // as the command line gave it, which starts each path reported
 	path  string // absolute
 	isDir bool
+	root  string // of the repository it is in, whose config applies; "" outside one
 }
 
 func main() {
@@ -126,12 +127,11 @@ func scanPaths(ctx context.Context, cwd string, o options, notices io.Writer) ([
 	if err != nil {
 		return nil, err
 	}
-	root := repoRoot(cwd)
-	rules, err := config.Load(root, o.langs, notices)
+	global, err := config.LoadGlobal(notices)
 	if err != nil {
 		return nil, err
 	}
-	return scanTargets(ctx, cwd, root, targets, rules, o.exclude)
+	return scanTargets(ctx, cwd, targets, global, o.langs, o.exclude)
 }
 
 // scanStaged scans the lines added in the staged changes of the work tree
@@ -202,7 +202,7 @@ func parseArgs(argv []string, out io.Writer) (options, error) {
 // relative to cwd, or cwd itself without any.
 func resolveTargets(cwd string, paths []string) ([]target, error) {
 	if len(paths) == 0 {
-		return []target{{path: cwd, isDir: true}}, nil
+		return []target{{path: cwd, isDir: true, root: repoRoot(cwd)}}, nil
 	}
 	targets := make([]target, 0, len(paths))
 	for _, given := range paths {
@@ -214,7 +214,11 @@ func resolveTargets(cwd string, paths []string) ([]target, error) {
 		if err != nil {
 			return nil, err
 		}
-		targets = append(targets, target{given: given, path: abs, isDir: info.IsDir()})
+		dir := abs
+		if !info.IsDir() {
+			dir = filepath.Dir(abs)
+		}
+		targets = append(targets, target{given: given, path: abs, isDir: info.IsDir(), root: repoRoot(dir)})
 	}
 	return targets, nil
 }
@@ -235,14 +239,24 @@ func repoRoot(dir string) string {
 	}
 }
 
-// scanTargets scans each target, and returns all they find sorted, with
-// their paths as the command line gave them. A file named on the command
-// line is read even if it is excluded or ignored; a directory is walked
-// with the config's excludes, from root, and --exclude's, from cwd.
-func scanTargets(ctx context.Context, cwd, root string, targets []target, rules config.Rules, flagExcludes []string) ([]scan.Finding, error) {
+// scanTargets scans each target with the config of the repository it is
+// in, and returns all they find sorted, with their paths as the command
+// line gave them. A file named on the command line is read even if it is
+// excluded or ignored; a directory is walked with the config's excludes,
+// from its repository's root, and --exclude's, from cwd.
+func scanTargets(ctx context.Context, cwd string, targets []target, global config.Global, langs, flagExcludes []string) ([]scan.Finding, error) {
+	rulesByRoot := map[string]config.Rules{}
 	var all []scan.Finding
 	for _, t := range targets {
-		findings, err := scanTarget(ctx, cwd, root, t, rules, flagExcludes)
+		rules, ok := rulesByRoot[t.root]
+		if !ok {
+			var err error
+			if rules, err = global.Rules(t.root, langs); err != nil {
+				return nil, err
+			}
+			rulesByRoot[t.root] = rules
+		}
+		findings, err := scanTarget(ctx, cwd, t, rules, flagExcludes)
 		if err != nil {
 			return nil, err
 		}
@@ -255,16 +269,12 @@ func scanTargets(ctx context.Context, cwd, root string, targets []target, rules 
 
 // scanTarget scans one target, giving its findings paths that start as
 // the command line gave it.
-func scanTarget(ctx context.Context, cwd, root string, t target, rules config.Rules, flagExcludes []string) ([]scan.Finding, error) {
+func scanTarget(ctx context.Context, cwd string, t target, rules config.Rules, flagExcludes []string) ([]scan.Finding, error) {
 	given := filepath.ToSlash(t.given)
 	if !t.isDir {
-		findings := scan.File(t.path, rules)
-		for i := range findings {
-			findings[i].Path = path.Clean(given)
-		}
-		return findings, nil
+		return scan.File(t.path, path.Clean(given), rules)
 	}
-	exclude, err := excludeFor(cwd, cmp.Or(root, cwd), t.path, rules.Exclude, flagExcludes)
+	exclude, err := excludeFor(cwd, cmp.Or(t.root, cwd), t.path, rules.Exclude, flagExcludes)
 	if err != nil {
 		return nil, err
 	}
