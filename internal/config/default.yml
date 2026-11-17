@@ -1,0 +1,56 @@
+# litterbug config.
+#
+# Each language lists the file name endings it covers and the patterns that
+# find debug statements in those files. Patterns are Go (RE2) regular
+# expressions, matched against each line: no lookbehind or backreferences.
+#
+# Set `enabled: false` on a language or a pattern to switch it off without
+# deleting it. A repository can override any of this in a .litterbug.yml at
+# its root: languages and patterns merge by name, and any other field it
+# sets replaces the one here.
+
+# Directories to skip: a name skips it at any depth, a path is from the
+# repository root. Directories starting with a dot, and whatever Git
+# ignores, are always skipped.
+exclude:
+  - node_modules
+  - vendor
+
+languages:
+  go:
+    enabled: true
+    extensions: [.go]
+    patterns:
+      fmt-print:
+        regex: '\bfmt\.Print(f|ln)?\('
+      builtin-print:
+        regex: '(^|[^\w.])print(ln)?\('
+      spew:
+        regex: '\bspew\.\w+\('
+      litter:
+        regex: '\blitter\.\w+\('
+
+  javascript:
+    enabled: true
+    extensions: [.js, .jsx, .mjs, .cjs, .ts, .tsx, .vue, .svelte]
+    patterns:
+      console:
+        regex: '\bconsole\.(log|debug|dir|table|trace)\('
+      debugger:
+        regex: '^\s*debugger\b'
+
+  php:
+    enabled: true
+    extensions: [.php, .phtml]
+    patterns:
+      var-dump:
+        regex: '\bvar_dump\('
+      print-r:
+        regex: '\bprint_r\('
+      # dd(), \dd() and @dd() in Blade, but not $x->dump() or X::dump().
+      dump-die:
+        regex: '(^|[^\w>:$])(dd|ddd|dump)\s*\('
+      ray:
+        regex: '(^|[^\w>:$])ray\('
+      xdebug-break:
+        regex: '\bxdebug_break\('
