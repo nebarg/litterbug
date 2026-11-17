@@ -508,3 +508,34 @@ func gitIn(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %v: %v %s", args, err, out)
 	}
 }
+
+func TestRunCount(t *testing.T) {
+	dir := setup(t, testTree)
+	for _, c := range []struct {
+		args   []string
+		stdout string
+		status int
+	}{
+		{[]string{"--count"}, "2 debug statements in 2 files\n", exitFound},
+		{[]string{"-c", "main.go"}, "1 debug statement in 1 file\n", exitFound},
+		{[]string{"-c", "--lang", "ruby,php"}, "2 debug statements in 2 files\n", exitFound},
+		{[]string{"-c", "clean.go"}, "No debug statements found.\n", exitClean},
+	} {
+		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
+			stdout, stderr, status := runCLI(t, c.args...)
+			if stdout != c.stdout || stderr != "" || status != c.status {
+				t.Errorf("status %d, stdout %q, stderr %q; want status %d, stdout %q", status, stdout, stderr, c.status, c.stdout)
+			}
+		})
+	}
+	if stdout, stderr, status := runCLI(t, "--count", "missing"); status != exitError || stdout != "" || !strings.Contains(stderr, "missing") {
+		t.Errorf("an error: status %d, stdout %q, stderr %q", status, stdout, stderr)
+	}
+
+	// With --staged, the count leaves out the hint about committing.
+	gitInit(t, dir)
+	gitIn(t, dir, "add", "main.go", "app.rb")
+	if stdout, _, status := runCLI(t, "--staged", "--count", "--lang", "go,ruby"); stdout != "2 debug statements in 2 files\n" || status != exitFound {
+		t.Errorf("--staged --count: status %d, stdout %q", status, stdout)
+	}
+}

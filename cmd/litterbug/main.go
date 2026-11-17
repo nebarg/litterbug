@@ -50,6 +50,7 @@ const (
 type options struct {
 	paths   []string // as given; none means the current directory
 	staged  bool
+	count   bool
 	langs   []string
 	exclude []string
 	version bool
@@ -104,11 +105,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	report(stdout, findings, styleFor(stdout))
+	if o.count {
+		_, _ = fmt.Fprintln(stdout, summary(findings))
+	} else {
+		report(stdout, findings, styleFor(stdout))
+	}
 	if len(findings) == 0 {
 		return exitClean
 	}
-	if o.staged {
+	if o.staged && !o.count {
 		_, _ = fmt.Fprintln(stdout, stagedHint)
 	}
 	return exitFound
@@ -169,6 +174,7 @@ func scanStaged(ctx context.Context, cwd string, o options, notices io.Writer) (
 func parseArgs(argv []string, out io.Writer) (options, error) {
 	var o options
 	flags := pflag.NewFlagSet("litterbug", pflag.ContinueOnError)
+	flags.BoolVarP(&o.count, "count", "c", false, "print only how many debug statements there are, and in how many files")
 	flags.BoolVar(&o.staged, "staged", false, "scan only the lines added in the changes staged for commit")
 	flags.StringSliceVarP(&o.langs, "lang", "l", nil, "only these `languages`, even if the config disables them (comma-separated or repeated)")
 	flags.StringArrayVarP(&o.exclude, "exclude", "e", nil, "also skip files and directories matching a `pattern`: a name at any depth, or with a slash, a path from here (repeatable)")

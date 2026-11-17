@@ -23,6 +23,7 @@ litterbug src main.go      # scan particular directories and files
 litterbug --lang go,php    # scan only these languages
 litterbug -e '*_test.go'   # skip test files as well
 litterbug --staged         # scan only the lines staged for commit
+litterbug --count          # only print how many statements were found
 ```
 
 Each finding shows the file, the line number, the line itself, and the language and
@@ -56,6 +57,9 @@ When nothing matches, litterbug prints `No debug statements found.` Lines longer
 
 The exit status is 0 when nothing is found, 1 when something is, and 2 on an error, so
 scripts and CI can tell the cases apart.
+
+`--count` prints only the last line, such as `2 debug statements in 2 files`, and exits
+with the same status. It is useful for a quick check of a large tree.
 
 When it walks a directory, litterbug skips files Git ignores, directories whose names
 start with a dot, binary files, files over 1 MB, and anything the config or `--exclude`

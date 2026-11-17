@@ -52,10 +52,10 @@ const (
 	red  = "31"
 )
 
-// report prints the findings in style s, then how many there are.
+// report prints the findings in style s, then their summary.
 func report(out io.Writer, findings []scan.Finding, s style) {
 	if len(findings) == 0 {
-		_, _ = fmt.Fprintln(out, "No debug statements found.")
+		_, _ = fmt.Fprintln(out, summary(findings))
 		return
 	}
 	if s.grouped {
@@ -63,11 +63,20 @@ func report(out io.Writer, findings []scan.Finding, s style) {
 	} else {
 		reportLines(out, findings)
 	}
+	_, _ = fmt.Fprintf(out, "\n%s\n", summary(findings))
+}
+
+// summary says how many findings there are and in how many files, or that
+// there are none.
+func summary(findings []scan.Finding) string {
+	if len(findings) == 0 {
+		return "No debug statements found."
+	}
 	files := map[string]bool{}
 	for _, f := range findings {
 		files[f.Path] = true
 	}
-	_, _ = fmt.Fprintf(out, "\n%s in %s\n", plural(len(findings), "debug statement", "debug statements"), plural(len(files), "file", "files"))
+	return plural(len(findings), "debug statement", "debug statements") + " in " + plural(len(files), "file", "files")
 }
 
 // reportLines prints each finding as path:line: text [language/pattern],
