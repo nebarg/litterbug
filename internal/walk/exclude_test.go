@@ -1,35 +1,116 @@
 package walk
 
 import (
+	"fmt"
 	"path/filepath"
-	"reflect"
+	"strings"
 	"testing"
 )
 
-func TestParseExclude(t *testing.T) {
+func TestExcludePatterns(t *testing.T) {
 	root := filepath.FromSlash("/repo")
-	sub := filepath.Join(root, "web")
+	web := filepath.Join(root, "web")
+	api := filepath.Join(root, "api")
 	for _, c := range []struct {
 		name      string
 		base, dir string
-		values    []string
-		want      Exclude
+		pattern   string
+		skipped   []string // relative to dir; a trailing slash marks a directory
+		kept      []string
 	}{
-		{"nothing to exclude", root, root, nil, Exclude{}},
-		{"bare names skip at any depth", root, root, []string{"dist/", "build", "Dumper.php"}, Exclude{Names: []string{"dist", "build", "Dumper.php"}}},
-		{"file paths", root, root, []string{"src/Debug/Dumper.php"}, Exclude{Paths: []string{"src/Debug/Dumper.php"}}},
-		{"paths are from the base directory", sub, sub, []string{"./gen", "src/out/"}, Exclude{Paths: []string{"gen", "src/out"}}},
-		{"paths are made relative to a walked directory elsewhere", root, sub, []string{"web/gen", "other/gen", "..", "."}, Exclude{Paths: []string{"gen"}}},
-		{"absolute paths", sub, sub, []string{filepath.Join(sub, "gen")}, Exclude{Paths: []string{"gen"}}},
+		{"a name at any depth", root, root, "node_modules",
+			[]string{"node_modules/", "web/node_modules/", "a/b/node_modules"}, []string{"node_modules.js", "web/x"}},
+		{"a name for directories only", root, root, "build/",
+			[]string{"build/", "web/build/"}, []string{"build", "web/build"}},
+		{"a glob name", root, root, "*_test.go",
+			[]string{"main_test.go", "pkg/a_test.go"}, []string{"main.go", "test.go", "pkg/a_test.go.orig"}},
+		{"a glob extension", root, root, "*.min.js",
+			[]string{"app.min.js", "web/dist/app.min.js"}, []string{"app.js", "min.js.map"}},
+		{"a negated class", root, root, "[!x]y.go",
+			[]string{"ay.go"}, []string{"xy.go", "y.go"}},
+		{"an escaped glob character", root, root, `odd\[1\]`,
+			[]string{"odd[1]/"}, []string{"odd1/"}},
+		{"a path from the base", root, root, "web/gen",
+			[]string{"web/gen/", "web/gen"}, []string{"gen/", "api/web/gen/", "web/gen2/"}},
+		{"a file path", root, root, "src/Debug/Dumper.php",
+			[]string{"src/Debug/Dumper.php"}, []string{"Dumper.php", "lib/src/Debug/Dumper.php"}},
+		{"everything below a directory", root, root, "dist/**",
+			[]string{"dist/a.js", "dist/x/", "dist/x/b.js"}, []string{"dist/", "src/dist/a.js"}},
+		{"a directory at any depth", root, root, "**/gen",
+			[]string{"gen/", "a/b/gen/"}, []string{"gen2/", "a/gen.go"}},
+		{"a single-directory wildcard", root, root, "web/*/out",
+			[]string{"web/a/out/"}, []string{"web/out/", "web/a/b/out/"}},
+		{"a leading ./", root, root, "./gen",
+			[]string{"gen/"}, []string{"web/gen/"}},
+		{"a path from the base, walking inside it", root, web, "web/gen",
+			[]string{"gen/"}, []string{"web/gen/", "x/gen/"}},
+		{"a path elsewhere in the base, walking inside it", root, web, "api/gen",
+			nil, []string{"gen/", "api/gen/"}},
+		{"a path from the base, walking around it", web, root, "./gen",
+			[]string{"web/gen/"}, []string{"gen/", "api/gen/"}},
+		{"the base itself, walking around it", web, root, ".",
+			[]string{"web/"}, []string{"api/", "x"}},
+		{"a path up from the base", web, root, "../api",
+			[]string{"api/"}, []string{"web/api/"}},
+		{"a base beside the walked directory", web, api, "./gen",
+			nil, []string{"gen/"}},
+		{"an absolute path", web, web, filepath.Join(web, "gen"),
+			[]string{"gen/"}, []string{"x/gen/"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := ParseExclude(c.base, c.dir, c.values)
-			if err != nil || !reflect.DeepEqual(got, c.want) {
-				t.Fatalf("got %+v, %v; want %+v", got, err, c.want)
+			exclude, err := ParseExclude(c.base, c.dir, []string{c.pattern})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []struct {
+				paths   []string
+				skipped bool
+			}{{c.skipped, true}, {c.kept, false}} {
+				for _, p := range want.paths {
+					rel, isDir := strings.CutSuffix(p, "/")
+					if got := exclude.skips(filepath.FromSlash(rel), isDir); got != want.skipped {
+						t.Errorf("%q skips %s = %v, want %v", c.pattern, p, got, want.skipped)
+					}
+				}
 			}
 		})
 	}
-	if _, err := ParseExclude(root, root, []string{"/"}); err == nil {
-		t.Fatal("an empty exclude was accepted")
+}
+
+func TestDotDirectoriesAreAlwaysSkipped(t *testing.T) {
+	var none Exclude
+	for p, want := range map[string]bool{".cache/": true, "web/.venv/": true, ".env": false, "web/.eslintrc.js": false, "web/": false} {
+		rel, isDir := strings.CutSuffix(p, "/")
+		if got := none.skips(filepath.FromSlash(rel), isDir); got != want {
+			t.Errorf("skips %s = %v, want %v", p, got, want)
+		}
+	}
+}
+
+func TestExcludeWith(t *testing.T) {
+	root := filepath.FromSlash("/repo")
+	a, errA := ParseExclude(root, root, []string{"vendor"})
+	b, errB := ParseExclude(root, root, []string{"*.min.js"})
+	if errA != nil || errB != nil {
+		t.Fatal(errA, errB)
+	}
+	both := a.With(b)
+	if !both.skips("vendor", true) || !both.skips("app.min.js", false) || both.skips("app.js", false) {
+		t.Error("combined excludes don't skip what each did")
+	}
+	if a.skips("app.min.js", false) {
+		t.Error("combining changed an exclude")
+	}
+}
+
+func TestParseExcludeRejectsBadPatterns(t *testing.T) {
+	root := filepath.FromSlash("/repo")
+	for _, pattern := range []string{"", "/", "//", "[", "web/[a", `x\`} {
+		if _, err := ParseExclude(root, root, []string{"ok", pattern}); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("%q", pattern)) {
+			t.Errorf("ParseExclude(%q) = %v, want an error", pattern, err)
+		}
+	}
+	if exclude, err := ParseExclude(root, root, nil); err != nil || len(exclude.rules) > 0 {
+		t.Errorf("no patterns = %+v, %v", exclude, err)
 	}
 }

@@ -12,10 +12,13 @@
 # its root: languages and patterns merge by name, and any other field it
 # sets replaces the one here.
 
-# Files and directories to skip: a name skips any so named at any depth, and
-# a path, such as src/Debug/Dumper.php, is from the repository root.
-# Directories starting with a dot, and whatever Git ignores, are always
-# skipped.
+# Files and directories to skip, written as in a .gitignore: a pattern
+# without a slash matches a name at any depth, such as vendor or '*_test.go',
+# and one with a slash is a path from the repository root, such as
+# src/Debug/Dumper.php or 'dist/**'. "**" matches any number of directories,
+# and a trailing slash matches only directories. Quote patterns that start
+# with "*". Directories starting with a dot, and whatever Git ignores, are
+# always skipped.
 exclude:
   - node_modules
   - vendor

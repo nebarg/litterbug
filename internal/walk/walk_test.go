@@ -31,15 +31,15 @@ func TestFiles(t *testing.T) {
 		"odd[1]/x.go":           "x\n",
 	}
 	cases := []struct {
-		name    string
-		exclude Exclude
-		want    []string
+		name     string
+		patterns []string
+		want     []string
 	}{
 		{"hidden files, Markdown and binaries are listed, dot directories and excludes skipped",
-			Exclude{Names: []string{"node_modules", "vendor"}},
+			[]string{"node_modules", "vendor"},
 			[]string{".hidden.go", "binary.dat", "code.go", "dist/out.js", "notes.md", "odd[1]/x.go", "pkg/dist/out.js", "pkg/gen/gen.go", "web/.eslintrc.js"}},
-		{"excluded names skip at any depth, paths only from the walked directory",
-			Exclude{Names: []string{"gen", "odd[1]"}, Paths: []string{"pkg/dist"}},
+		{"names skip at any depth, paths only from the walked directory, and glob characters can be escaped",
+			[]string{"gen", `odd\[1\]`, "pkg/dist"},
 			[]string{".hidden.go", "binary.dat", "code.go", "dist/out.js", "node_modules/dep.js", "notes.md", "vendor/lib.go", "web/.eslintrc.js", "web/node_modules/d.js"}},
 	}
 	for _, setup := range setups {
@@ -51,7 +51,7 @@ func TestFiles(t *testing.T) {
 			}
 			keepGitConfigOut(t)
 			for _, c := range cases {
-				if got := listFiles(t, dir, c.exclude); !slices.Equal(got, c.want) {
+				if got := listFiles(t, dir, excludeIn(t, dir, c.patterns...)); !slices.Equal(got, c.want) {
 					t.Errorf("%s:\n got  %v\n want %v", c.name, got, c.want)
 				}
 			}
@@ -67,9 +67,17 @@ func TestFilesSkipsExcludedFiles(t *testing.T) {
 		"web/src/debug.php": "x\n",
 		"src/keep.php":      "x\n",
 		".hidden.php":       "x\n",
+		"main_test.go":      "x\n",
+		"pkg/a_test.go":     "x\n",
+		"pkg/a.go":          "x\n",
+		"web/app.min.js":    "x\n",
+		"web/app.js":        "x\n",
+		"dist/bundle.js":    "x\n",
+		"dist/x/y.js":       "x\n",
+		"src/dist/keep.js":  "x\n",
 	}
-	exclude := Exclude{Names: []string{"Dumper.php"}, Paths: []string{"src/debug.php"}}
-	want := []string{".hidden.php", "src/keep.php", "web/src/debug.php"}
+	patterns := []string{"Dumper.php", "src/debug.php", "*_test.go", "*.min.js", "dist/**"}
+	want := []string{".hidden.php", "pkg/a.go", "src/dist/keep.js", "src/keep.php", "web/app.js", "web/src/debug.php"}
 	for _, setup := range setups {
 		t.Run(setup.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -78,11 +86,21 @@ func TestFilesSkipsExcludedFiles(t *testing.T) {
 				gitInit(t, dir)
 			}
 			keepGitConfigOut(t)
-			if got := listFiles(t, dir, exclude); !slices.Equal(got, want) {
+			if got := listFiles(t, dir, excludeIn(t, dir, patterns...)); !slices.Equal(got, want) {
 				t.Errorf("files = %v, want %v", got, want)
 			}
 		})
 	}
+}
+
+// excludeIn parses patterns for a walk of dir, with paths from dir.
+func excludeIn(t *testing.T, dir string, patterns ...string) Exclude {
+	t.Helper()
+	exclude, err := ParseExclude(dir, dir, patterns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return exclude
 }
 
 func TestFilesSkipsUnreadableDirectories(t *testing.T) {

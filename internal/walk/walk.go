@@ -68,7 +68,7 @@ func (w *walker) walk(rel string, scope ignoreScope) error {
 		segments[len(segments)-1] = name
 		switch child := filepath.Join(rel, name); {
 		case entry.IsDir():
-			if w.exclude.skipsDir(child) || scope.ignores(segments, true) {
+			if w.exclude.skips(child, true) || scope.ignores(segments, true) {
 				continue
 			}
 			sub := scope
@@ -76,7 +76,7 @@ func (w *walker) walk(rel string, scope ignoreScope) error {
 			if err := w.walk(child, sub); err != nil {
 				return err
 			}
-		case entry.Type().IsRegular() && !w.exclude.excludes(child) && !scope.ignores(segments, false):
+		case entry.Type().IsRegular() && !w.exclude.skips(child, false) && !scope.ignores(segments, false):
 			w.add(child)
 		}
 	}
