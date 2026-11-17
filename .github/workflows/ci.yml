@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # The newest patch release, as the release workflow builds with.
+          check-latest: true
       - run: go test -race ./...
 
   lint:
@@ -28,6 +30,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # govulncheck checks the standard library of the Go it runs with.
+          check-latest: true
           cache-dependency-path: |
             go.sum
             tools/go.sum

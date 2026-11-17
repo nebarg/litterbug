@@ -18,6 +18,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # The newest patch release rather than a Go the runner has cached,
+          # so the binaries get its security fixes.
+          check-latest: true
       - run: go test ./...
       - uses: goreleaser/goreleaser-action@v7
         with:
