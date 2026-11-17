@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/nebarg/litterbug/internal/config"
+	"github.com/nebarg/litterbug/internal/repotest"
 	"github.com/nebarg/litterbug/internal/walk"
 )
 
@@ -30,7 +31,7 @@ languages:
 func TestTree(t *testing.T) {
 	rules := loadRules(t)
 	dir := t.TempDir()
-	writeFiles(t, dir, map[string]string{
+	repotest.WriteFiles(t, dir, map[string]string{
 		"main.go":          "package main\n\nfunc main() {\n\tfmt.Println(1)\n}\n",
 		"clean.go":         "package main\n",
 		"web/index.php":    "<?php\n$x = 1;\nvar_dump($x);\nvar_dump ($x);\n",
@@ -40,7 +41,7 @@ func TestTree(t *testing.T) {
 		"web/gen/out.php":  "var_dump($x);\n",
 		".cache/cached.go": "fmt.Println(1)\n",
 	})
-	keepGitConfigOut(t)
+	repotest.IsolateGit(t)
 	exclude, err := walk.ParseExclude(dir, dir, []string{"vendor", "web/gen"})
 	if err != nil {
 		t.Fatal(err)
@@ -65,8 +66,8 @@ func TestTreeIsSortedAndDeterministic(t *testing.T) {
 		files[name] = "x := 1\nfmt.Println(x)\nfmt.Print(x)\n"
 		want = append(want, name+":2 go/fmt-print", name+":3 go/fmt-print")
 	}
-	writeFiles(t, dir, files)
-	keepGitConfigOut(t)
+	repotest.WriteFiles(t, dir, files)
+	repotest.IsolateGit(t)
 	for range 5 {
 		findings, err := Tree(t.Context(), dir, walk.Exclude{}, rules)
 		if err != nil {
@@ -81,8 +82,8 @@ func TestTreeIsSortedAndDeterministic(t *testing.T) {
 func TestTreeStopsWhenCancelled(t *testing.T) {
 	rules := loadRules(t)
 	dir := t.TempDir()
-	writeFiles(t, dir, map[string]string{"main.go": "fmt.Println(1)\n"})
-	keepGitConfigOut(t)
+	repotest.WriteFiles(t, dir, map[string]string{"main.go": "fmt.Println(1)\n"})
+	repotest.IsolateGit(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if findings, err := Tree(ctx, dir, walk.Exclude{}, rules); !errors.Is(err, context.Canceled) {
@@ -100,7 +101,7 @@ func TestTreeReportsAnUnreadableDirectory(t *testing.T) {
 func TestFile(t *testing.T) {
 	rules := loadRules(t)
 	dir := t.TempDir()
-	writeFiles(t, dir, map[string]string{
+	repotest.WriteFiles(t, dir, map[string]string{
 		"main.go":     "x := 1\nfmt.Println(x)\n",
 		"notes.txt":   "fmt.Println(x)\n",
 		"binary.go":   "\x00fmt.Println(x)\n",
@@ -139,7 +140,7 @@ func TestFileReportsAFileItCannotRead(t *testing.T) {
 		t.Errorf("a missing file: %v", err)
 	}
 	locked := filepath.Join(dir, "locked.go")
-	writeFiles(t, dir, map[string]string{"locked.go": "fmt.Println(x)\n"})
+	repotest.WriteFiles(t, dir, map[string]string{"locked.go": "fmt.Println(x)\n"})
 	if err := os.Chmod(locked, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +166,7 @@ func loadRules(t *testing.T) config.Rules {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", home)
-	writeFiles(t, home, map[string]string{"litterbug/config.yml": testConfig})
+	repotest.WriteFiles(t, home, map[string]string{"litterbug/config.yml": testConfig})
 	rules, err := config.Load("", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -180,25 +181,4 @@ func describe(findings []Finding) []string {
 		lines = append(lines, fmt.Sprintf("%s:%d %s/%s", f.Path, f.Line, f.Rule.Language, f.Rule.Name))
 	}
 	return lines
-}
-
-func writeFiles(t *testing.T, dir string, files map[string]string) {
-	t.Helper()
-	for name, content := range files {
-		path := filepath.Join(dir, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-// keepGitConfigOut stops the user's global gitignore from hiding test
-// files. It leaves XDG_CONFIG_HOME, which loadRules points at its config.
-func keepGitConfigOut(t *testing.T) {
-	t.Helper()
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 }

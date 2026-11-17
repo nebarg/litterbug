@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/nebarg/litterbug/internal/repotest"
 )
 
 // runAsLitterbug makes the test binary run as litterbug, so a hook a test
@@ -22,7 +24,7 @@ func TestMain(m *testing.M) {
 
 func TestTheHookBlocksCommitsAddingDebugStatements(t *testing.T) {
 	dir := setup(t, map[string]string{"main.go": "package main\n"})
-	gitInit(t, dir)
+	repotest.Init(t, dir)
 	commitAll(t, dir)
 	t.Setenv(runAsLitterbug, "1")
 
@@ -34,7 +36,7 @@ func TestTheHookBlocksCommitsAddingDebugStatements(t *testing.T) {
 		t.Errorf("no warning that the test binary is a temporary build: %q", stderr)
 	}
 
-	writeFiles(t, dir, map[string]string{"main.go": "package main\n\nfmt.Println(1)\n"})
+	repotest.WriteFiles(t, dir, map[string]string{"main.go": "package main\n\nfmt.Println(1)\n"})
 	out, err := gitCommit(t, dir, "-am", "debug")
 	if err == nil || !strings.Contains(out, "main.go:3: fmt.Println(1)  [go/fmt-print]") || !strings.Contains(out, stagedHint) {
 		t.Fatalf("a commit adding a debug statement: %v\n%s", err, out)
@@ -45,8 +47,8 @@ func TestTheHookBlocksCommitsAddingDebugStatements(t *testing.T) {
 
 	// A commit of only clean files goes through, though main.go still
 	// holds its debug statement, unstaged.
-	writeFiles(t, dir, map[string]string{"clean.go": "package main\n"})
-	gitIn(t, dir, "add", "clean.go")
+	repotest.WriteFiles(t, dir, map[string]string{"clean.go": "package main\n"})
+	repotest.Git(t, dir, "add", "clean.go")
 	if out, err := gitCommit(t, dir, "-m", "clean"); err != nil || !strings.Contains(out, "No debug statements found.") {
 		t.Fatalf("a clean commit: %v\n%s", err, out)
 	}
@@ -62,7 +64,7 @@ func TestTheHookBlocksCommitsAddingDebugStatements(t *testing.T) {
 	if status != exitClean || !strings.HasPrefix(stdout, "Removed the pre-commit hook at ") {
 		t.Fatalf("uninstall-hook: status %d, stdout %q", status, stdout)
 	}
-	writeFiles(t, dir, map[string]string{"main.go": "package main\n\nfmt.Println(2)\n"})
+	repotest.WriteFiles(t, dir, map[string]string{"main.go": "package main\n\nfmt.Println(2)\n"})
 	if out, err := gitCommit(t, dir, "-am", "debug without the hook"); err != nil {
 		t.Fatalf("a commit after uninstalling: %v\n%s", err, out)
 	}
@@ -70,7 +72,7 @@ func TestTheHookBlocksCommitsAddingDebugStatements(t *testing.T) {
 
 func TestHookCommands(t *testing.T) {
 	dir := setup(t, testTree)
-	gitInit(t, dir)
+	repotest.Init(t, dir)
 	hook := filepath.Join(dir, ".git", "hooks", "pre-commit")
 	foreign := "#!/bin/sh\necho another tool\n"
 
@@ -79,7 +81,7 @@ func TestHookCommands(t *testing.T) {
 		t.Errorf("uninstall-hook without one: status %d, stdout %q", status, stdout)
 	}
 
-	writeFiles(t, dir, map[string]string{filepath.Join(".git", "hooks", "pre-commit"): foreign})
+	repotest.WriteFiles(t, dir, map[string]string{filepath.Join(".git", "hooks", "pre-commit"): foreign})
 	stdout, stderr, status := runCLI(t, "install-hook")
 	if status != exitError || stdout != "" || !strings.Contains(stderr, "didn't install") || !strings.Contains(stderr, "--force") {
 		t.Errorf("install-hook over another hook: status %d, stdout %q, stderr %q", status, stdout, stderr)
@@ -138,11 +140,7 @@ func gitCommit(t *testing.T, dir string, args ...string) (string, error) {
 
 func commitCount(t *testing.T, dir string) int {
 	t.Helper()
-	out, err := exec.Command("git", "-C", dir, "rev-list", "--count", "HEAD").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	n, err := strconv.Atoi(strings.TrimSpace(repotest.Git(t, dir, "rev-list", "--count", "HEAD")))
 	if err != nil {
 		t.Fatal(err)
 	}

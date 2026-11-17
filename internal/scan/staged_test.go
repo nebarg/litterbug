@@ -9,25 +9,26 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nebarg/litterbug/internal/repotest"
 	"github.com/nebarg/litterbug/internal/walk"
 )
 
 func TestStaged(t *testing.T) {
 	rules := loadRules(t)
-	repo := newRepo(t)
-	writeFiles(t, repo, map[string]string{
+	repo := repotest.NewRepo(t)
+	repotest.WriteFiles(t, repo, map[string]string{
 		"mod.go":       numberedLines(10),
 		"tomove.go":    numberedLines(30),
 		"gone.go":      "fmt.Println(1)\n",
 		"old_debug.go": "fmt.Println(\"already committed\")\n",
 	})
-	gitIn(t, repo, "add", ".")
-	gitIn(t, repo, "commit", "-qm", "base")
+	repotest.Git(t, repo, "add", ".")
+	repotest.Git(t, repo, "commit", "-qm", "base")
 
 	// mod.go gains a line after line 3 and one at the end, and loses line 8.
 	lines := strings.Split(strings.TrimSuffix(numberedLines(10), "\n"), "\n")
 	mod := slices.Concat(lines[:3], []string{`fmt.Println("inserted")`}, lines[3:7], lines[8:], []string{`fmt.Println("end")`})
-	writeFiles(t, repo, map[string]string{
+	repotest.WriteFiles(t, repo, map[string]string{
 		"mod.go":            strings.Join(mod, "\n") + "\n",
 		"new.php":           "<?php\nvar_dump($x);\n",
 		"with space.go":     "fmt.Println(1)\n",
@@ -39,12 +40,12 @@ func TestStaged(t *testing.T) {
 		".github/script.go": "fmt.Println(1)\n",
 		"old_debug.go":      "fmt.Println(\"already committed\")\nx := 2\n",
 	})
-	gitIn(t, repo, "mv", "tomove.go", "moved.go")
-	writeFiles(t, repo, map[string]string{"moved.go": numberedLines(30) + "fmt.Println(\"moved\")\n"})
-	gitIn(t, repo, "rm", "-q", "gone.go")
-	gitIn(t, repo, "add", ".")
+	repotest.Git(t, repo, "mv", "tomove.go", "moved.go")
+	repotest.WriteFiles(t, repo, map[string]string{"moved.go": numberedLines(30) + "fmt.Println(\"moved\")\n"})
+	repotest.Git(t, repo, "rm", "-q", "gone.go")
+	repotest.Git(t, repo, "add", ".")
 	// Changes made after staging aren't committed, so aren't reported.
-	writeFiles(t, repo, map[string]string{"mod.go": strings.Join(mod, "\n") + "\nfmt.Println(\"unstaged\")\n", "untracked.go": "fmt.Println(1)\n"})
+	repotest.WriteFiles(t, repo, map[string]string{"mod.go": strings.Join(mod, "\n") + "\nfmt.Println(\"unstaged\")\n", "untracked.go": "fmt.Println(1)\n"})
 
 	exclude, err := walk.ParseExclude(repo, repo, []string{"vendor"})
 	if err != nil {
@@ -75,9 +76,9 @@ func TestStaged(t *testing.T) {
 
 func TestStagedOnAFirstCommit(t *testing.T) {
 	rules := loadRules(t)
-	repo := newRepo(t)
-	writeFiles(t, repo, map[string]string{"main.go": "package main\n\nfmt.Println(1)\n"})
-	gitIn(t, repo, "add", ".")
+	repo := repotest.NewRepo(t)
+	repotest.WriteFiles(t, repo, map[string]string{"main.go": "package main\n\nfmt.Println(1)\n"})
+	repotest.Git(t, repo, "add", ".")
 	findings, err := Staged(t.Context(), repo, walk.Exclude{}, rules)
 	if got, want := describe(findings), []string{"main.go:3 go/fmt-print"}; err != nil || !slices.Equal(got, want) {
 		t.Fatalf("findings = %q, %v; want %q", got, err, want)
@@ -86,10 +87,10 @@ func TestStagedOnAFirstCommit(t *testing.T) {
 
 func TestStagedReadsTheIndexGitNames(t *testing.T) {
 	rules := loadRules(t)
-	repo := newRepo(t)
-	writeFiles(t, repo, map[string]string{"main.go": "package main\n"})
-	gitIn(t, repo, "add", ".")
-	gitIn(t, repo, "commit", "-qm", "base")
+	repo := repotest.NewRepo(t)
+	repotest.WriteFiles(t, repo, map[string]string{"main.go": "package main\n"})
+	repotest.Git(t, repo, "add", ".")
+	repotest.Git(t, repo, "commit", "-qm", "base")
 	// git commit -a stages into an index of its own and names it in
 	// GIT_INDEX_FILE for its hooks.
 	index := filepath.Join(t.TempDir(), "index")
@@ -97,8 +98,8 @@ func TestStagedReadsTheIndexGitNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFiles(t, filepath.Dir(index), map[string]string{"index": string(data)})
-	writeFiles(t, repo, map[string]string{"main.go": "package main\n\nfmt.Println(1)\n"})
+	repotest.WriteFiles(t, filepath.Dir(index), map[string]string{"index": string(data)})
+	repotest.WriteFiles(t, repo, map[string]string{"main.go": "package main\n\nfmt.Println(1)\n"})
 	add := exec.Command("git", "-C", repo, "add", "main.go")
 	add.Env = append(os.Environ(), "GIT_INDEX_FILE="+index)
 	if out, err := add.CombinedOutput(); err != nil {
@@ -117,15 +118,15 @@ func TestStagedReadsTheIndexGitNames(t *testing.T) {
 
 func TestStagedOverridesDiffSettings(t *testing.T) {
 	rules := loadRules(t)
-	repo := newRepo(t)
+	repo := repotest.NewRepo(t)
 	for _, setting := range [][2]string{
 		{"diff.noprefix", "true"}, {"diff.mnemonicPrefix", "true"}, {"color.ui", "always"}, {"core.quotePath", "true"},
 		{"diff.relative", "true"}, {"diff.external", "false"}, {"diff.renames", "copies"},
 	} {
-		gitIn(t, repo, "config", setting[0], setting[1])
+		repotest.Git(t, repo, "config", setting[0], setting[1])
 	}
-	writeFiles(t, repo, map[string]string{"ünï/main.go": "fmt.Println(1)\n"})
-	gitIn(t, repo, "add", ".")
+	repotest.WriteFiles(t, repo, map[string]string{"ünï/main.go": "fmt.Println(1)\n"})
+	repotest.Git(t, repo, "add", ".")
 	findings, err := Staged(t.Context(), repo, walk.Exclude{}, rules)
 	if got, want := describe(findings), []string{"ünï/main.go:1 go/fmt-print"}; err != nil || !slices.Equal(got, want) {
 		t.Fatalf("findings = %q, %v; want %q", got, err, want)
@@ -138,29 +139,6 @@ func TestStagedOutsideARepository(t *testing.T) {
 	rules := loadRules(t)
 	if findings, err := Staged(t.Context(), t.TempDir(), walk.Exclude{}, rules); err == nil {
 		t.Fatalf("findings = %q, no error", describe(findings))
-	}
-}
-
-// newRepo makes a repository that commits as a test user, with the
-// user's own Git configuration kept out.
-func newRepo(t *testing.T) string {
-	t.Helper()
-	keepGitConfigOut(t)
-	for _, v := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"} {
-		t.Setenv(v, "Test")
-	}
-	for _, v := range []string{"GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"} {
-		t.Setenv(v, "test@example.com")
-	}
-	repo := t.TempDir()
-	gitIn(t, repo, "init", "-q")
-	return repo
-}
-
-func gitIn(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v %s", args, err, out)
 	}
 }
 

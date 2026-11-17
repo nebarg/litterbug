@@ -94,25 +94,45 @@ func (w *walker) repoScope(root string) ignoreScope {
 	}
 }
 
-// enclosingScope finds the repository the walked directory is in, with the
+// enclosingScope finds the repository above the walked directory, with the
 // rules of the gitignores above it. The directory itself is walked even if
-// they ignore it.
+// they ignore it, and walk finds a repository the directory is the root of.
 func (w *walker) enclosingScope() ignoreScope {
-	var segments []string // the walked directory's path from parent
-	for child, parent := w.dir, filepath.Dir(w.dir); parent != child; child, parent = parent, filepath.Dir(parent) {
-		segments = slices.Insert(segments, 0, filepath.Base(child))
-		if _, err := os.Lstat(filepath.Join(parent, ".git")); err != nil {
-			continue
-		}
-		scope := w.repoScope(parent)
-		for depth := range segments {
-			gitignore := filepath.Join(parent, filepath.Join(segments[:depth]...), ".gitignore")
-			scope.rules = withIgnoreFile(scope.rules, gitignore, depth)
-		}
-		scope.segments = segments
-		return scope
+	parent := filepath.Dir(w.dir)
+	if parent == w.dir {
+		return ignoreScope{} // The root of the file system has nothing above it.
 	}
-	return ignoreScope{}
+	root := RepoRoot(parent)
+	if root == "" {
+		return ignoreScope{}
+	}
+	rel, err := filepath.Rel(root, w.dir)
+	if err != nil {
+		return ignoreScope{}
+	}
+	scope := w.repoScope(root)
+	scope.segments = splitPath(rel)
+	for depth := range scope.segments {
+		gitignore := filepath.Join(root, filepath.Join(scope.segments[:depth]...), ".gitignore")
+		scope.rules = withIgnoreFile(scope.rules, gitignore, depth)
+	}
+	return scope
+}
+
+// RepoRoot is the root of the work tree dir is in: the nearest directory
+// at or above it with a .git, which is a file in a linked work tree or a
+// submodule. It is empty outside a repository.
+func RepoRoot(dir string) string {
+	for {
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 // hasEntry reports whether a directory's entries, sorted as os.ReadDir

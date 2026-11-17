@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/nebarg/litterbug/internal/config"
+	"github.com/nebarg/litterbug/internal/walk"
 	"github.com/spf13/pflag"
 )
 
@@ -70,7 +71,7 @@ func configPath(cwd string, global bool) (string, error) {
 	if global {
 		return config.GlobalPath()
 	}
-	root := repoRoot(cwd)
+	root := walk.RepoRoot(cwd)
 	if root == "" {
 		return "", errors.New("not in a repository; run litterbug init-config --global to write the global config")
 	}

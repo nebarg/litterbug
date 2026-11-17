@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"os"
@@ -26,16 +27,25 @@ type style struct {
 }
 
 // styleFor picks how to print to out: grouped when it is a terminal, and
-// in color too unless NO_COLOR is set.
-func styleFor(out io.Writer) style {
+// in color as color, --color's value, says.
+func styleFor(out io.Writer, color string) style {
 	file, ok := out.(*os.File)
-	return terminalStyle(ok && isTerminal(file), os.Getenv("NO_COLOR"))
+	return terminalStyle(ok && isTerminal(file), color, os.Getenv("NO_COLOR"))
 }
 
 // terminalStyle is the style for output to a terminal or not, with
-// NO_COLOR's value; any value but an empty one turns color off.
-func terminalStyle(terminal bool, noColor string) style {
-	return style{grouped: terminal, color: terminal && noColor == ""}
+// --color's value, always, never or auto, and NO_COLOR's. auto colors
+// output to a terminal unless NO_COLOR has a value, which always, as a
+// choice made for this run, overrides.
+func terminalStyle(terminal bool, color, noColor string) style {
+	s := style{grouped: terminal}
+	switch color {
+	case "always":
+		s.color = true
+	case "auto":
+		s.color = terminal && noColor == ""
+	}
+	return s
 }
 
 // isTerminal reports whether file is a character device, as a terminal
@@ -61,7 +71,7 @@ func report(out io.Writer, findings []scan.Finding, s style) {
 	if s.grouped {
 		reportGrouped(out, findings, s.color)
 	} else {
-		reportLines(out, findings)
+		reportLines(out, findings, s.color)
 	}
 	_, _ = fmt.Fprintf(out, "\n%s\n", summary(findings))
 }
@@ -80,10 +90,13 @@ func summary(findings []scan.Finding) string {
 }
 
 // reportLines prints each finding as path:line: text [language/pattern],
-// which editors and terminals can follow to the line.
-func reportLines(out io.Writer, findings []scan.Finding) {
+// which editors and terminals can follow to the line. In color, the path
+// is bold, the match red, and the line number and rule dim.
+func reportLines(out io.Writer, findings []scan.Finding, color bool) {
 	for _, f := range findings {
-		_, _ = fmt.Fprintf(out, "%s:%d: %s  [%s]\n", cleanDisplay(f.Path), f.Line, displayLine(f.Text, f.Start, f.End), ruleName(f))
+		before, match, after := excerpt(f.Text, f.Start, f.End)
+		_, _ = fmt.Fprintf(out, "%s:%s: %s%s%s  %s\n",
+			paint(cleanDisplay(f.Path), bold, color), paint(strconv.Itoa(f.Line), dim, color), before, paint(match, red, color), after, paint("["+ruleName(f)+"]", dim, color))
 	}
 }
 
@@ -91,7 +104,7 @@ func reportLines(out io.Writer, findings []scan.Finding) {
 // their line numbers in a column. In color, the path is bold, the match
 // red, and the line numbers and rules dim.
 func reportGrouped(out io.Writer, findings []scan.Finding, color bool) {
-	width := len(strconv.Itoa(slices.MaxFunc(findings, func(a, b scan.Finding) int { return a.Line - b.Line }).Line))
+	width := len(strconv.Itoa(slices.MaxFunc(findings, func(a, b scan.Finding) int { return cmp.Compare(a.Line, b.Line) }).Line))
 	for i, f := range findings {
 		if i == 0 || f.Path != findings[i-1].Path {
 			if i > 0 {
@@ -115,12 +128,6 @@ func paint(s, code string, color bool) string {
 
 func ruleName(f scan.Finding) string {
 	return cleanDisplay(f.Rule.Language) + "/" + cleanDisplay(f.Rule.Name)
-}
-
-// displayLine is a finding's line as excerpt shows it, in one piece.
-func displayLine(text string, start, end int) string {
-	before, match, after := excerpt(text, start, end)
-	return before + match + after
 }
 
 // excerpt trims a finding's line, whose match is the bytes from start to

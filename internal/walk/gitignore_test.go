@@ -1,7 +1,6 @@
 package walk
 
 import (
-	"bytes"
 	"cmp"
 	"os"
 	"os/exec"
@@ -9,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/nebarg/litterbug/internal/repotest"
 )
 
 // TestIgnoreRulesMatchGit lists the files of a repository with tricky
@@ -37,18 +38,18 @@ func testIgnoreRulesMatchGit(t *testing.T, userIgnoreCase, repoIgnoreCase string
 	if userIgnoreCase != "" {
 		gitconfig += "\tignoreCase = " + userIgnoreCase + "\n"
 	}
-	writeFiles(t, config, map[string]string{"gitconfig": gitconfig, "ignore": "global-*.go\n"})
+	repotest.WriteFiles(t, config, map[string]string{"gitconfig": gitconfig, "ignore": "global-*.go\n"})
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(config, "gitconfig"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	dir := t.TempDir()
-	gitInit(t, dir)
+	repotest.Init(t, dir)
 	// git init sets core.ignoreCase on a file system that ignores case, so
 	// it is set before it is removed.
-	git(t, dir, "config", "core.ignoreCase", cmp.Or(repoIgnoreCase, "false"))
+	repotest.Git(t, dir, "config", "core.ignoreCase", cmp.Or(repoIgnoreCase, "false"))
 	if repoIgnoreCase == "" {
-		git(t, dir, "config", "--unset", "core.ignoreCase")
+		repotest.Git(t, dir, "config", "--unset", "core.ignoreCase")
 	}
 	files := map[string]string{
 		".git/info/exclude": "from-info.go\n*.tmp\n",
@@ -72,7 +73,7 @@ func testIgnoreRulesMatchGit(t *testing.T, userIgnoreCase, repoIgnoreCase string
 	} {
 		files[name] = "x\n"
 	}
-	writeFiles(t, dir, files)
+	repotest.WriteFiles(t, dir, files)
 
 	var got []string
 	if err := Files(t.Context(), dir, Exclude{}, func(path string) { got = append(got, filepath.ToSlash(path)) }); err != nil {
@@ -80,9 +81,9 @@ func testIgnoreRulesMatchGit(t *testing.T, userIgnoreCase, repoIgnoreCase string
 	}
 	slices.Sort(got)
 	var want []string
-	for path := range bytes.SplitSeq(git(t, dir, "ls-files", "--others", "--exclude-standard", "-z"), []byte{0}) {
-		if len(path) > 0 {
-			want = append(want, string(path))
+	for path := range strings.SplitSeq(repotest.Git(t, dir, "ls-files", "--others", "--exclude-standard", "-z"), "\x00") {
+		if path != "" {
+			want = append(want, path)
 		}
 	}
 	slices.Sort(want)
@@ -103,39 +104,30 @@ func TestIgnoreRulesOfAGitFile(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("Git is unavailable")
 	}
-	keepGitConfigOut(t)
+	repotest.IsolateGit(t)
 	dir := t.TempDir()
 	main := filepath.Join(dir, "main")
-	writeFiles(t, main, map[string]string{".gitignore": "\n"})
-	gitInit(t, main)
-	git(t, main, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "--allow-empty", "-m", "first")
-	git(t, main, "worktree", "add", "-q", filepath.Join(dir, "linked"))
-	git(t, dir, "init", "-q", "--separate-git-dir", filepath.Join(dir, "separate.git"), "separate")
+	repotest.WriteFiles(t, main, map[string]string{".gitignore": "\n"})
+	repotest.Init(t, main)
+	repotest.Git(t, main, "commit", "-q", "--allow-empty", "-m", "first")
+	repotest.Git(t, main, "worktree", "add", "-q", filepath.Join(dir, "linked"))
+	repotest.Git(t, dir, "init", "-q", "--separate-git-dir", filepath.Join(dir, "separate.git"), "separate")
 
 	for _, workTree := range []string{"linked", "separate"} {
 		t.Run(workTree, func(t *testing.T) {
 			path := filepath.Join(dir, workTree)
-			exclude := strings.TrimSpace(string(git(t, path, "rev-parse", "--git-path", "info/exclude")))
+			exclude := strings.TrimSpace(repotest.Git(t, path, "rev-parse", "--git-path", "info/exclude"))
 			if !filepath.IsAbs(exclude) {
 				exclude = filepath.Join(path, exclude)
 			}
-			writeFiles(t, filepath.Dir(exclude), map[string]string{filepath.Base(exclude): "excluded.go\n"})
-			git(t, path, "config", "core.ignoreCase", "true")
-			writeFiles(t, path, map[string]string{".gitignore": "LOUD.go\n", "loud.go": "x\n", "excluded.go": "x\n", "kept.go": "x\n"})
+			repotest.WriteFiles(t, filepath.Dir(exclude), map[string]string{filepath.Base(exclude): "excluded.go\n"})
+			repotest.Git(t, path, "config", "core.ignoreCase", "true")
+			repotest.WriteFiles(t, path, map[string]string{".gitignore": "LOUD.go\n", "loud.go": "x\n", "excluded.go": "x\n", "kept.go": "x\n"})
 			if got, want := listFiles(t, path, Exclude{}), []string{".gitignore", "kept.go"}; !slices.Equal(got, want) {
 				t.Fatalf("files = %v, want %v", got, want)
 			}
 		})
 	}
-}
-
-func git(t *testing.T, dir string, args ...string) []byte {
-	t.Helper()
-	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
-	if err != nil {
-		t.Fatalf("git %v: %v", args, err)
-	}
-	return out
 }
 
 func TestGlobalIgnoreFile(t *testing.T) {
@@ -145,7 +137,7 @@ func TestGlobalIgnoreFile(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	write := func(name, content string) {
 		t.Helper()
-		writeFiles(t, home, map[string]string{name: content})
+		repotest.WriteFiles(t, home, map[string]string{name: content})
 	}
 	check := func(want string) {
 		t.Helper()

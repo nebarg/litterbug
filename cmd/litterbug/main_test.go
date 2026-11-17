@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -13,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/nebarg/litterbug/internal/config"
+	"github.com/nebarg/litterbug/internal/repotest"
 	"github.com/nebarg/litterbug/internal/scan"
 )
 
@@ -134,6 +134,27 @@ func TestRunReportsANamedFileItCannotRead(t *testing.T) {
 	}
 }
 
+func TestRunColor(t *testing.T) {
+	setup(t, testTree)
+	t.Setenv("NO_COLOR", "1")
+	colored := "\x1b[1mmain.go\x1b[0m:\x1b[2m4\x1b[0m: \x1b[31mfmt.Print\x1b[0mln(1)  \x1b[2m[go/fmt-print]\x1b[0m\n"
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"main.go"}, mainFinding + "\n"},
+		{[]string{"--color", "never", "main.go"}, mainFinding + "\n"},
+		{[]string{"--color=always", "main.go"}, colored},
+	} {
+		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
+			stdout, stderr, status := runCLI(t, c.args...)
+			if want := c.want + "\n1 debug statement in 1 file\n"; stdout != want || stderr != "" || status != exitFound {
+				t.Errorf("status %d, stderr %q\n got  %q\n want %q", status, stderr, stdout, want)
+			}
+		})
+	}
+}
+
 func TestRunLang(t *testing.T) {
 	setup(t, testTree)
 	for _, c := range []struct {
@@ -188,7 +209,7 @@ func TestRunUsesTheRepoConfigFromASubdirectory(t *testing.T) {
 	}
 	maps.Copy(files, testTree)
 	dir := setup(t, files)
-	gitInit(t, dir)
+	repotest.Init(t, dir)
 	stdout, _, _ := runCLI(t)
 	if got, want := findingLines(stdout), []string{webFinding}; !slices.Equal(got, want) {
 		t.Errorf("from the root:\n got  %q\n want %q", got, want)
@@ -211,8 +232,8 @@ func TestRunUsesTheConfigOfTheRepositoryEachPathIsIn(t *testing.T) {
 		"lib/lib.go":             "fmt.Println(1)\n",
 		"lib/lib.php":            "<?php\nvar_dump($x);\n",
 	})
-	gitInit(t, filepath.Join(dir, "app"))
-	gitInit(t, filepath.Join(dir, "lib"))
+	repotest.Init(t, filepath.Join(dir, "app"))
+	repotest.Init(t, filepath.Join(dir, "lib"))
 	for _, c := range []struct {
 		from string
 		args []string
@@ -251,6 +272,7 @@ func TestRunErrors(t *testing.T) {
 		{[]string{"--lang", "go,"}, []string{"--lang needs a language name"}},
 		{[]string{"-e", "/"}, []string{"--exclude", "needs a file or directory"}},
 		{[]string{"-e", "[a"}, []string{"--exclude", "not a valid pattern"}},
+		{[]string{"--color", "sometimes"}, []string{`--color must be auto, always or never, not "sometimes"`}},
 	} {
 		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
 			stdout, stderr, status := runCLI(t, c.args...)
@@ -265,8 +287,8 @@ func TestRunErrors(t *testing.T) {
 		})
 	}
 
-	gitInit(t, dir)
-	writeFiles(t, dir, map[string]string{config.RepoFile: "languages:\n  go: {enable: false}\n"})
+	repotest.Init(t, dir)
+	repotest.WriteFiles(t, dir, map[string]string{config.RepoFile: "languages:\n  go: {enable: false}\n"})
 	if stdout, stderr, status := runCLI(t); status != exitError || stdout != "" || !strings.Contains(stderr, config.RepoFile) {
 		t.Errorf("invalid repo config: status %d, stdout %q, stderr %q", status, stdout, stderr)
 	}
@@ -318,7 +340,7 @@ func TestDisplayLine(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			got := displayLine(c.text, c.start, c.end)
 			if got != c.want {
-				t.Errorf("displayLine = %q, want %q", got, c.want)
+				t.Errorf("excerpt = %q, want %q", got, c.want)
 			}
 			if n := utf8.RuneCountInString(got); n > maxLineLength {
 				t.Errorf("%d characters shown", n)
@@ -330,6 +352,12 @@ func TestDisplayLine(t *testing.T) {
 	if want := "…" + strings.Repeat("b", maxLineLength-2) + "…"; got != want {
 		t.Errorf("a long match = %q, want %q", got, want)
 	}
+}
+
+// displayLine is a finding's line as excerpt shows it, in one piece.
+func displayLine(text string, start, end int) string {
+	before, match, after := excerpt(text, start, end)
+	return before + match + after
 }
 
 func TestReportCleansPaths(t *testing.T) {
@@ -382,19 +410,33 @@ func TestReportGroupedInColor(t *testing.T) {
 	}
 }
 
+func TestReportLinesInColor(t *testing.T) {
+	var out bytes.Buffer
+	report(&out, groupedFindings[1:2], style{color: true})
+	want := "\x1b[1mweb/src/cart.ts\x1b[0m:\x1b[2m17\x1b[0m: \x1b[31mconsole.log(\x1b[0mitems)  \x1b[2m[javascript/console]\x1b[0m\n" +
+		"\n1 debug statement in 1 file\n"
+	if out.String() != want {
+		t.Errorf("report:\n got  %q\n want %q", out.String(), want)
+	}
+}
+
 func TestTerminalStyle(t *testing.T) {
 	for _, c := range []struct {
-		terminal bool
-		noColor  string
-		want     style
+		terminal       bool
+		color, noColor string
+		want           style
 	}{
-		{false, "", style{}},
-		{false, "1", style{}},
-		{true, "", style{grouped: true, color: true}},
-		{true, "1", style{grouped: true}},
+		{false, "auto", "", style{}},
+		{false, "auto", "1", style{}},
+		{true, "auto", "", style{grouped: true, color: true}},
+		{true, "auto", "1", style{grouped: true}},
+		{false, "always", "1", style{color: true}},
+		{true, "always", "1", style{grouped: true, color: true}},
+		{false, "never", "", style{}},
+		{true, "never", "", style{grouped: true}},
 	} {
-		if got := terminalStyle(c.terminal, c.noColor); got != c.want {
-			t.Errorf("terminalStyle(%v, %q) = %+v, want %+v", c.terminal, c.noColor, got, c.want)
+		if got := terminalStyle(c.terminal, c.color, c.noColor); got != c.want {
+			t.Errorf("terminalStyle(%v, %q, %q) = %+v, want %+v", c.terminal, c.color, c.noColor, got, c.want)
 		}
 	}
 }
@@ -415,7 +457,7 @@ func TestPipesAndFilesAreNotTerminals(t *testing.T) {
 			t.Errorf("%s is taken for a terminal", f.Name())
 		}
 	}
-	if got := styleFor(&bytes.Buffer{}); got != (style{}) {
+	if got := styleFor(&bytes.Buffer{}, "auto"); got != (style{}) {
 		t.Errorf("styleFor(a buffer) = %+v", got)
 	}
 }
@@ -447,13 +489,12 @@ func TestExcerptSplitsAroundTheMatch(t *testing.T) {
 // configuration kept out. It returns the directory.
 func setup(t *testing.T, files map[string]string) string {
 	t.Helper()
+	repotest.IsolateGit(t)
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", home)
-	writeFiles(t, home, map[string]string{"litterbug/config.yml": testConfig})
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	repotest.WriteFiles(t, home, map[string]string{"litterbug/config.yml": testConfig})
 	dir := t.TempDir()
-	writeFiles(t, dir, files)
+	repotest.WriteFiles(t, dir, files)
 	t.Chdir(dir)
 	return dir
 }
@@ -482,38 +523,18 @@ func wantStatus(findings []string) int {
 	return exitClean
 }
 
-func writeFiles(t *testing.T, dir string, files map[string]string) {
-	t.Helper()
-	for name, content := range files {
-		path := filepath.Join(dir, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-func gitInit(t *testing.T, dir string) {
-	t.Helper()
-	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v %s", err, out)
-	}
-}
-
 func TestRunStaged(t *testing.T) {
 	dir := setup(t, map[string]string{"main.go": "package main\n", "web/index.php": "<?php\n"})
-	gitInit(t, dir)
+	repotest.Init(t, dir)
 	commitAll(t, dir)
-	writeFiles(t, dir, map[string]string{
+	repotest.WriteFiles(t, dir, map[string]string{
 		"main.go":       "package main\n\nfmt.Println(1)\n",
 		"web/index.php": "<?php\nvar_dump($x);\n",
 		"vendor/lib.go": "fmt.Println(1)\n",
 		"app.rb":        "binding.pry\n",
 	})
-	gitIn(t, dir, "add", ".")
-	writeFiles(t, dir, map[string]string{"untracked.go": "fmt.Println(1)\n", "web/untracked.php": "<?php var_dump(1);\n"})
+	repotest.Git(t, dir, "add", ".")
+	repotest.WriteFiles(t, dir, map[string]string{"untracked.go": "fmt.Println(1)\n", "web/untracked.php": "<?php var_dump(1);\n"})
 
 	stdout, stderr, status := runCLI(t, "--staged")
 	want := "main.go:3: fmt.Println(1)  [go/fmt-print]\n" + webFinding + "\n\n2 debug statements in 2 files\n" + stagedHint + "\n"
@@ -543,7 +564,7 @@ func TestRunStaged(t *testing.T) {
 
 func TestRunStagedWithNothingStaged(t *testing.T) {
 	dir := setup(t, testTree)
-	gitInit(t, dir)
+	repotest.Init(t, dir)
 	commitAll(t, dir)
 	stdout, stderr, status := runCLI(t, "--staged")
 	if stdout != "No debug statements found.\n" || stderr != "" || status != exitClean {
@@ -563,24 +584,11 @@ func TestRunStagedErrors(t *testing.T) {
 	}
 }
 
-// commitAll commits everything in the repository at dir as a test user.
+// commitAll commits everything in the repository at dir.
 func commitAll(t *testing.T, dir string) {
 	t.Helper()
-	for _, v := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"} {
-		t.Setenv(v, "Test")
-	}
-	for _, v := range []string{"GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"} {
-		t.Setenv(v, "test@example.com")
-	}
-	gitIn(t, dir, "add", ".")
-	gitIn(t, dir, "commit", "-qm", "commit")
-}
-
-func gitIn(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v %s", args, err, out)
-	}
+	repotest.Git(t, dir, "add", ".")
+	repotest.Git(t, dir, "commit", "-qm", "commit")
 }
 
 func TestRunCount(t *testing.T) {
@@ -607,8 +615,8 @@ func TestRunCount(t *testing.T) {
 	}
 
 	// With --staged, the count leaves out the hint about committing.
-	gitInit(t, dir)
-	gitIn(t, dir, "add", "main.go", "app.rb")
+	repotest.Init(t, dir)
+	repotest.Git(t, dir, "add", "main.go", "app.rb")
 	if stdout, _, status := runCLI(t, "--staged", "--count", "--lang", "go,ruby"); stdout != "2 debug statements in 2 files\n" || status != exitFound {
 		t.Errorf("--staged --count: status %d, stdout %q", status, stdout)
 	}

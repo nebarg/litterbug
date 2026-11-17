@@ -54,6 +54,7 @@ type options struct {
 	count   bool
 	langs   []string
 	exclude []string
+	color   string // auto, always or never
 	version bool
 }
 
@@ -112,7 +113,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if o.count {
 		_, _ = fmt.Fprintln(stdout, summary(findings))
 	} else {
-		report(stdout, findings, styleFor(stdout))
+		report(stdout, findings, styleFor(stdout, o.color))
 	}
 	if len(findings) == 0 {
 		return exitClean
@@ -176,6 +177,7 @@ func parseArgs(argv []string, out io.Writer) (options, error) {
 	flags.BoolVar(&o.staged, "staged", false, "scan only the lines added in the changes staged for commit")
 	flags.StringSliceVarP(&o.langs, "lang", "l", nil, "only these `languages`, even if the config disables them (comma-separated or repeated)")
 	flags.StringArrayVarP(&o.exclude, "exclude", "e", nil, "also skip files and directories matching a `pattern`: a name at any depth, or with a slash, a path from here (repeatable)")
+	flags.StringVar(&o.color, "color", "auto", "`when` to color the output: auto, at a terminal unless NO_COLOR is set; always; or never")
 	flags.BoolVar(&o.version, "version", false, "print the version")
 	flags.Usage = func() {
 		_, _ = fmt.Fprint(out, usageText+flags.FlagUsages())
@@ -185,6 +187,9 @@ func parseArgs(argv []string, out io.Writer) (options, error) {
 			return o, err
 		}
 		return o, fmt.Errorf("%w\nRun litterbug --help for usage", err)
+	}
+	if !slices.Contains([]string{"auto", "always", "never"}, o.color) {
+		return o, fmt.Errorf("--color must be auto, always or never, not %q", o.color)
 	}
 	for i, lang := range o.langs {
 		o.langs[i] = strings.TrimSpace(lang)
@@ -200,7 +205,7 @@ func parseArgs(argv []string, out io.Writer) (options, error) {
 // relative to cwd, or cwd itself without any.
 func resolveTargets(cwd string, paths []string) ([]target, error) {
 	if len(paths) == 0 {
-		return []target{{path: cwd, isDir: true, root: repoRoot(cwd)}}, nil
+		return []target{{path: cwd, isDir: true, root: walk.RepoRoot(cwd)}}, nil
 	}
 	targets := make([]target, 0, len(paths))
 	for _, given := range paths {
@@ -216,25 +221,9 @@ func resolveTargets(cwd string, paths []string) ([]target, error) {
 		if !info.IsDir() {
 			dir = filepath.Dir(abs)
 		}
-		targets = append(targets, target{given: given, path: abs, isDir: info.IsDir(), root: repoRoot(dir)})
+		targets = append(targets, target{given: given, path: abs, isDir: info.IsDir(), root: walk.RepoRoot(dir)})
 	}
 	return targets, nil
-}
-
-// repoRoot is the root of the repository dir is in: the nearest directory
-// at or above it with a .git, which is a file in a worktree or submodule.
-// It is empty outside a repository.
-func repoRoot(dir string) string {
-	for {
-		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
 }
 
 // scanTargets scans each target with the config that applies in the

@@ -6,11 +6,12 @@ import (
 	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/nebarg/litterbug/internal/repotest"
 )
 
 func TestFiles(t *testing.T) {
@@ -45,11 +46,11 @@ func TestFiles(t *testing.T) {
 	for _, setup := range setups {
 		t.Run(setup.name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeFiles(t, dir, tree)
+			repotest.WriteFiles(t, dir, tree)
+			repotest.IsolateGit(t)
 			if setup.repo {
-				gitInit(t, dir)
+				repotest.Init(t, dir)
 			}
-			keepGitConfigOut(t)
 			for _, c := range cases {
 				if got := listFiles(t, dir, excludeIn(t, dir, c.patterns...)); !slices.Equal(got, c.want) {
 					t.Errorf("%s:\n got  %v\n want %v", c.name, got, c.want)
@@ -81,11 +82,11 @@ func TestFilesSkipsExcludedFiles(t *testing.T) {
 	for _, setup := range setups {
 		t.Run(setup.name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeFiles(t, dir, tree)
+			repotest.WriteFiles(t, dir, tree)
+			repotest.IsolateGit(t)
 			if setup.repo {
-				gitInit(t, dir)
+				repotest.Init(t, dir)
 			}
-			keepGitConfigOut(t)
 			if got := listFiles(t, dir, excludeIn(t, dir, patterns...)); !slices.Equal(got, want) {
 				t.Errorf("files = %v, want %v", got, want)
 			}
@@ -107,7 +108,7 @@ func TestFilesSkipsUnreadableDirectories(t *testing.T) {
 	for _, setup := range setups {
 		t.Run(setup.name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeFiles(t, dir, map[string]string{"ok/a.go": "x\n", "locked/b.go": "x\n"})
+			repotest.WriteFiles(t, dir, map[string]string{"ok/a.go": "x\n", "locked/b.go": "x\n"})
 			locked := filepath.Join(dir, "locked")
 			if err := os.Chmod(locked, 0); err != nil {
 				t.Fatal(err)
@@ -116,10 +117,10 @@ func TestFilesSkipsUnreadableDirectories(t *testing.T) {
 			if _, err := os.ReadDir(locked); err == nil {
 				t.Skip("directory permissions aren't enforced for this user")
 			}
+			repotest.IsolateGit(t)
 			if setup.repo {
-				gitInit(t, dir)
+				repotest.Init(t, dir)
 			}
-			keepGitConfigOut(t)
 			if got := listFiles(t, dir, Exclude{}); !slices.Equal(got, []string{"ok/a.go"}) {
 				t.Fatalf("files = %v", got)
 			}
@@ -132,13 +133,13 @@ func TestFilesSkipsUnreadableDirectories(t *testing.T) {
 
 func TestFilesSkipsSymlinks(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, map[string]string{"real/a.go": "x\n"})
+	repotest.WriteFiles(t, dir, map[string]string{"real/a.go": "x\n"})
 	for link, target := range map[string]string{"file-link.go": "real/a.go", "dir-link": "real"} {
 		if err := os.Symlink(target, filepath.Join(dir, link)); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
 	}
-	keepGitConfigOut(t)
+	repotest.IsolateGit(t)
 	if got := listFiles(t, dir, Exclude{}); !slices.Equal(got, []string{"real/a.go"}) {
 		t.Fatalf("files = %v, want only the real file", got)
 	}
@@ -146,9 +147,9 @@ func TestFilesSkipsSymlinks(t *testing.T) {
 
 func TestFilesWalksADirectoryItsRepositoryIgnores(t *testing.T) {
 	repo := t.TempDir()
-	writeFiles(t, repo, map[string]string{".gitignore": "/*\n", "ignored/a.go": "x\n"})
-	gitInit(t, repo)
-	keepGitConfigOut(t)
+	repotest.WriteFiles(t, repo, map[string]string{".gitignore": "/*\n", "ignored/a.go": "x\n"})
+	repotest.IsolateGit(t)
+	repotest.Init(t, repo)
 	if got := listFiles(t, filepath.Join(repo, "ignored"), Exclude{}); !slices.Equal(got, []string{"a.go"}) {
 		t.Fatalf("files = %v", got)
 	}
@@ -156,7 +157,7 @@ func TestFilesWalksADirectoryItsRepositoryIgnores(t *testing.T) {
 
 func TestFilesFollowsEachRepositorysGitignore(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, map[string]string{
+	repotest.WriteFiles(t, dir, map[string]string{
 		"loose.go":           "x\n",
 		"app/.gitignore":     "/build/\n",
 		"app/main.go":        "x\n",
@@ -166,9 +167,9 @@ func TestFilesFollowsEachRepositorysGitignore(t *testing.T) {
 		"app/lib/x.gen.go":   "x\n",
 		"app/.cache/c.go":    "x\n",
 	})
-	gitInit(t, filepath.Join(dir, "app"))
-	gitInit(t, filepath.Join(dir, "app", "lib"))
-	keepGitConfigOut(t)
+	repotest.IsolateGit(t)
+	repotest.Init(t, filepath.Join(dir, "app"))
+	repotest.Init(t, filepath.Join(dir, "app", "lib"))
 	inApp := []string{".gitignore", "lib/.gitignore", "lib/lib.go", "main.go"}
 	var fromAbove []string
 	for _, path := range inApp {
@@ -185,15 +186,41 @@ func TestFilesFollowsEachRepositorysGitignore(t *testing.T) {
 	}
 }
 
+func TestRepoRoot(t *testing.T) {
+	dir := t.TempDir()
+	repotest.WriteFiles(t, dir, map[string]string{
+		"repo/.git/HEAD":   "ref: refs/heads/main\n",
+		"repo/a/b/x.go":    "x\n",
+		"linked/.git":      "gitdir: /elsewhere\n", // As in a linked work tree or a submodule.
+		"linked/sub/y.go":  "x\n",
+		"loose/z.go":       "x\n",
+		"repo/nested/.git": "gitdir: /elsewhere\n",
+	})
+	for from, want := range map[string]string{
+		"repo":        "repo",
+		"repo/a/b":    "repo",
+		"repo/nested": "repo/nested",
+		"linked/sub":  "linked",
+		"loose":       "",
+	} {
+		if want != "" {
+			want = filepath.Join(dir, want)
+		}
+		if got := RepoRoot(filepath.Join(dir, from)); got != want {
+			t.Errorf("RepoRoot(%s) = %q, want %q", from, got, want)
+		}
+	}
+}
+
 func TestFilesStopsWhenCancelled(t *testing.T) {
 	for _, setup := range setups {
 		t.Run(setup.name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeFiles(t, dir, map[string]string{"a.go": "x\n"})
+			repotest.WriteFiles(t, dir, map[string]string{"a.go": "x\n"})
+			repotest.IsolateGit(t)
 			if setup.repo {
-				gitInit(t, dir)
+				repotest.Init(t, dir)
 			}
-			keepGitConfigOut(t)
 			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
 			var got []string
@@ -266,7 +293,7 @@ func TestReadTextSkipsFilesOverTheSizeLimit(t *testing.T) {
 
 func TestReadTextSkipsWhatIsNotAReadableRegularFile(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, map[string]string{"real.go": "x\n", "locked.go": "x\n"})
+	repotest.WriteFiles(t, dir, map[string]string{"real.go": "x\n", "locked.go": "x\n"})
 	if err := os.Symlink("real.go", filepath.Join(dir, "link.go")); err != nil {
 		t.Fatal(err)
 	}
@@ -299,37 +326,9 @@ func listFiles(t *testing.T, dir string, exclude Exclude) []string {
 	return got
 }
 
-func writeFiles(t *testing.T, dir string, files map[string]string) {
-	t.Helper()
-	for name, content := range files {
-		path := filepath.Join(dir, name)
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-func gitInit(t *testing.T, dir string) {
-	t.Helper()
-	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v %s", err, out)
-	}
-}
-
 // setups run a walk test on a directory outside a repository, and on one
 // made a repository.
 var setups = []struct {
 	name string
 	repo bool
 }{{"outside a repository", false}, {"in a repository", true}}
-
-// keepGitConfigOut stops the user's global gitignore from hiding test files.
-func keepGitConfigOut(t *testing.T) {
-	t.Helper()
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-}

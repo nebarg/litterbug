@@ -64,7 +64,9 @@ web/src/cart.ts:17: console.log(items)  [javascript/console]
 2 debug statements in 2 files
 ```
 
-Set the `NO_COLOR` environment variable to turn color off.
+Set the `NO_COLOR` environment variable, or pass `--color=never`, to turn color off.
+`--color=always` keeps it when the output is piped or captured, as into `less -R` or a
+CI log that shows color.
 
 When nothing matches, litterbug prints `No debug statements found.` Lines longer than
 160 characters, such as minified code, are cut down to the part around the match.

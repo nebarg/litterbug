@@ -7,11 +7,12 @@ import (
 	"testing"
 
 	"github.com/nebarg/litterbug/internal/config"
+	"github.com/nebarg/litterbug/internal/repotest"
 )
 
 func TestInitConfig(t *testing.T) {
 	dir := setup(t, map[string]string{"web/index.php": "<?php\nprint_r($x);\n"})
-	gitInit(t, dir)
+	repotest.Init(t, dir)
 	path := filepath.Join(dir, config.RepoFile)
 
 	// From a subdirectory, the config goes at the repository's root, and
@@ -26,7 +27,7 @@ func TestInitConfig(t *testing.T) {
 	}
 
 	t.Chdir(dir)
-	writeFiles(t, dir, map[string]string{config.RepoFile: phpConfig})
+	repotest.WriteFiles(t, dir, map[string]string{config.RepoFile: phpConfig})
 	stdout, stderr, status := runCLI(t, "init-config")
 	if status != exitError || stdout != "" || !strings.Contains(stderr, "there is already a config, at .litterbug.yml.") || !strings.Contains(stderr, "litterbug init-config --force") {
 		t.Errorf("over an existing config: status %d, stdout %q, stderr %q", status, stdout, stderr)

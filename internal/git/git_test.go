@@ -2,14 +2,15 @@ package git
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/nebarg/litterbug/internal/repotest"
 )
 
 func TestRunReportsWhatGitPrints(t *testing.T) {
-	keepGitConfigOut(t)
+	repotest.IsolateGit(t)
 	if _, err := Run(t.Context(), t.TempDir(), "rev-parse", "--show-toplevel"); err == nil || !strings.Contains(err.Error(), "not a git repository") {
 		t.Errorf("err = %v", err)
 	}
@@ -19,7 +20,7 @@ func TestRunReportsWhatGitPrints(t *testing.T) {
 }
 
 func TestWorkTreeRoot(t *testing.T) {
-	repo := newRepo(t)
+	repo := repotest.NewRepo(t)
 	sub := filepath.Join(repo, "a", "b")
 	if err := os.MkdirAll(sub, 0755); err != nil {
 		t.Fatal(err)
@@ -36,15 +37,15 @@ func TestWorkTreeRoot(t *testing.T) {
 }
 
 func TestHooksDir(t *testing.T) {
-	repo := newRepo(t)
+	repo := repotest.NewRepo(t)
 	sub := filepath.Join(repo, "a", "b")
 	if err := os.MkdirAll(sub, 0755); err != nil {
 		t.Fatal(err)
 	}
-	gitIn(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+	repotest.Git(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
 	elsewhere := t.TempDir()
 	worktree := filepath.Join(t.TempDir(), "worktree")
-	gitIn(t, repo, "worktree", "add", "-q", worktree)
+	repotest.Git(t, repo, "worktree", "add", "-q", worktree)
 
 	for _, c := range []struct {
 		name, hooksPath, dir, want string
@@ -57,8 +58,8 @@ func TestHooksDir(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if c.hooksPath != "" {
-				gitIn(t, repo, "config", "core.hooksPath", c.hooksPath)
-				t.Cleanup(func() { gitIn(t, repo, "config", "--unset", "core.hooksPath") })
+				repotest.Git(t, repo, "config", "core.hooksPath", c.hooksPath)
+				t.Cleanup(func() { repotest.Git(t, repo, "config", "--unset", "core.hooksPath") })
 			}
 			got, err := HooksDir(t.Context(), c.dir)
 			if err != nil || resolved(t, got) != resolved(t, c.want) {
@@ -85,34 +86,5 @@ func resolved(t *testing.T, path string) string {
 			return path
 		}
 		dir, rest = parent, filepath.Join(filepath.Base(dir), rest)
-	}
-}
-
-// newRepo makes a repository that commits as a test user, with the
-// user's own Git configuration kept out.
-func newRepo(t *testing.T) string {
-	t.Helper()
-	keepGitConfigOut(t)
-	for _, v := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"} {
-		t.Setenv(v, "Test")
-	}
-	for _, v := range []string{"GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"} {
-		t.Setenv(v, "test@example.com")
-	}
-	repo := t.TempDir()
-	gitIn(t, repo, "init", "-q")
-	return repo
-}
-
-func keepGitConfigOut(t *testing.T) {
-	t.Helper()
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-}
-
-func gitIn(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v %s", args, err, out)
 	}
 }
