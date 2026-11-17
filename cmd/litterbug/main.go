@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/nebarg/litterbug/internal/config"
+	"github.com/nebarg/litterbug/internal/git"
 	"github.com/nebarg/litterbug/internal/scan"
 	"github.com/nebarg/litterbug/internal/walk"
 	"github.com/spf13/pflag"
@@ -25,6 +26,8 @@ import (
 const usageText = `Usage:
   litterbug [flags] [path...]    find debug statements in files and directories (default: here)
   litterbug --staged [flags]     find them in the lines staged for commit, as the hook does
+  litterbug install-hook         block commits that add them, with a Git pre-commit hook
+  litterbug uninstall-hook       remove that hook
 
 Directories are walked, skipping what Git ignores and what the config or
 --exclude excludes. A file or directory named here is scanned even if
@@ -70,6 +73,14 @@ func main() {
 // run runs litterbug with the arguments after the program name, and
 // returns its exit status.
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "install-hook":
+			return installHook(ctx, args[1:], stdout, stderr)
+		case "uninstall-hook":
+			return uninstallHook(ctx, args[1:], stdout, stderr)
+		}
+	}
 	o, err := parseArgs(args, stdout)
 	if errors.Is(err, pflag.ErrHelp) {
 		return exitClean
@@ -124,7 +135,7 @@ func scanStaged(ctx context.Context, cwd string, o options, notices io.Writer) (
 	if len(o.paths) > 0 {
 		return nil, errors.New("--staged scans what is staged, so it takes no paths")
 	}
-	root, err := scan.WorkTreeRoot(ctx, cwd)
+	root, err := git.WorkTreeRoot(ctx, cwd)
 	if err != nil {
 		return nil, fmt.Errorf("--staged: %w", err)
 	}

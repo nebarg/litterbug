@@ -133,31 +133,11 @@ func TestStagedOverridesDiffSettings(t *testing.T) {
 }
 
 // Outside a repository, git diff falls back to comparing files and
-// rejects --cached; WorkTreeRoot gives the clearer error.
+// rejects --cached; git.WorkTreeRoot gives the clearer error.
 func TestStagedOutsideARepository(t *testing.T) {
 	rules := loadRules(t)
 	if findings, err := Staged(t.Context(), t.TempDir(), walk.Exclude{}, rules); err == nil {
 		t.Fatalf("findings = %q, no error", describe(findings))
-	}
-}
-
-func TestWorkTreeRoot(t *testing.T) {
-	repo := newRepo(t)
-	sub := filepath.Join(repo, "a", "b")
-	if err := os.MkdirAll(sub, 0755); err != nil {
-		t.Fatal(err)
-	}
-	want, err := filepath.EvalSymlinks(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, dir := range []string{repo, sub} {
-		if got, err := WorkTreeRoot(t.Context(), dir); err != nil || got != want {
-			t.Errorf("WorkTreeRoot(%s) = %q, %v; want %q", dir, got, err, want)
-		}
-	}
-	if _, err := WorkTreeRoot(t.Context(), t.TempDir()); err == nil || !strings.Contains(err.Error(), "not a git repository") {
-		t.Errorf("outside a repository: %v", err)
 	}
 }
 
