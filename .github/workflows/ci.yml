@@ -8,6 +8,8 @@ on:
 permissions:
   contents: read
 
+# Actions are pinned to commits, which, unlike tags, can't be moved to
+# other code. Dependabot updates the pins and their version comments.
 jobs:
   test:
     strategy:
@@ -15,8 +17,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           # The newest patch release, as the release workflow builds with.
@@ -26,8 +28,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           # govulncheck checks the standard library of the Go it runs with.
@@ -35,5 +37,8 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools/go.sum
+      - run: go mod tidy -diff
+      - run: go mod tidy -diff
+        working-directory: tools
       - run: go tool -modfile=tools/go.mod golangci-lint run ./...
       - run: go tool -modfile=tools/go.mod govulncheck ./...
