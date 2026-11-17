@@ -104,7 +104,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	report(stdout, findings)
+	report(stdout, findings, styleFor(stdout))
 	if len(findings) == 0 {
 		return exitClean
 	}

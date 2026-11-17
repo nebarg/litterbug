@@ -259,10 +259,112 @@ func TestDisplayLine(t *testing.T) {
 }
 
 func TestReportCleansPaths(t *testing.T) {
+	findings := []scan.Finding{{Path: "a\x1b[2Jb.go", Line: 3, Text: "fmt.Println(1)", Rule: config.Rule{Language: "go", Name: "fmt-print"}, End: 11}}
+	for s, want := range map[style]string{
+		{}:              "a [2Jb.go:3: fmt.Println(1)  [go/fmt-print]\n\n1 debug statement in 1 file\n",
+		{grouped: true}: "a [2Jb.go\n  3  fmt.Println(1)  [go/fmt-print]\n\n1 debug statement in 1 file\n",
+	} {
+		var out bytes.Buffer
+		report(&out, findings, s)
+		if out.String() != want {
+			t.Errorf("report(%+v) = %q, want %q", s, out.String(), want)
+		}
+	}
+}
+
+// groupedFindings are in two files, sorted as a scan returns them.
+var groupedFindings = []scan.Finding{
+	{Path: "internal/api/handler.go", Line: 42, Text: "\tfmt.Println(\"user\", u)", Start: 1, End: 12, Rule: config.Rule{Language: "go", Name: "fmt-print"}},
+	{Path: "web/src/cart.ts", Line: 17, Text: "  console.log(items)", Start: 2, End: 14, Rule: config.Rule{Language: "javascript", Name: "console"}},
+	{Path: "web/src/cart.ts", Line: 120, Text: "x = 1; console.debug(state)", Start: 7, End: 21, Rule: config.Rule{Language: "javascript", Name: "console"}},
+}
+
+func TestReportGrouped(t *testing.T) {
 	var out bytes.Buffer
-	report(&out, []scan.Finding{{Path: "a\x1b[2Jb.go", Line: 3, Text: "fmt.Println(1)", Rule: config.Rule{Language: "go", Name: "fmt-print"}}})
-	if want := "a [2Jb.go:3: fmt.Println(1)  [go/fmt-print]\n\n1 debug statement in 1 file\n"; out.String() != want {
-		t.Errorf("report = %q, want %q", out.String(), want)
+	report(&out, groupedFindings, style{grouped: true})
+	want := `internal/api/handler.go
+   42  fmt.Println("user", u)  [go/fmt-print]
+
+web/src/cart.ts
+   17  console.log(items)  [javascript/console]
+  120  x = 1; console.debug(state)  [javascript/console]
+
+3 debug statements in 2 files
+`
+	if out.String() != want {
+		t.Errorf("report:\n%s\nwant:\n%s", out.String(), want)
+	}
+}
+
+func TestReportGroupedInColor(t *testing.T) {
+	var out bytes.Buffer
+	report(&out, groupedFindings[1:], style{grouped: true, color: true})
+	want := "\x1b[1mweb/src/cart.ts\x1b[0m\n" +
+		"  \x1b[2m 17\x1b[0m  \x1b[31mconsole.log(\x1b[0mitems)  \x1b[2m[javascript/console]\x1b[0m\n" +
+		"  \x1b[2m120\x1b[0m  x = 1; \x1b[31mconsole.debug(\x1b[0mstate)  \x1b[2m[javascript/console]\x1b[0m\n" +
+		"\n2 debug statements in 1 file\n"
+	if out.String() != want {
+		t.Errorf("report:\n got  %q\n want %q", out.String(), want)
+	}
+}
+
+func TestTerminalStyle(t *testing.T) {
+	for _, c := range []struct {
+		terminal bool
+		noColor  string
+		want     style
+	}{
+		{false, "", style{}},
+		{false, "1", style{}},
+		{true, "", style{grouped: true, color: true}},
+		{true, "1", style{grouped: true}},
+	} {
+		if got := terminalStyle(c.terminal, c.noColor); got != c.want {
+			t.Errorf("terminalStyle(%v, %q) = %+v, want %+v", c.terminal, c.noColor, got, c.want)
+		}
+	}
+}
+
+func TestPipesAndFilesAreNotTerminals(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Close(); _ = writer.Close() }()
+	file, err := os.Create(filepath.Join(t.TempDir(), "out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = file.Close() }()
+	for _, f := range []*os.File{writer, file} {
+		if isTerminal(f) {
+			t.Errorf("%s is taken for a terminal", f.Name())
+		}
+	}
+	if got := styleFor(&bytes.Buffer{}); got != (style{}) {
+		t.Errorf("styleFor(a buffer) = %+v", got)
+	}
+}
+
+func TestExcerptSplitsAroundTheMatch(t *testing.T) {
+	long := strings.Repeat("x", 300)
+	for _, c := range []struct {
+		name, text           string
+		start, end           int
+		before, match, after string
+	}{
+		{"trimmed", "\tfmt.Println(1)  ", 1, 12, "", "fmt.Println", "(1)"},
+		{"in the middle", "x := 1; dd($x);", 8, 11, "x := 1; ", "dd(", "$x);"},
+		{"control characters", "a\x1b;dd(\x1b)", 3, 6, "a ;", "dd(", " )"},
+		{"a long line", long + "dd(1)", 300, 303, "…" + strings.Repeat("x", 154), "dd(", "1)"},
+		{"an empty match", "x", 0, 0, "", "", "x"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			before, match, after := excerpt(c.text, c.start, c.end)
+			if before != c.before || match != c.match || after != c.after {
+				t.Errorf("excerpt = %q, %q, %q; want %q, %q, %q", before, match, after, c.before, c.match, c.after)
+			}
+		})
 	}
 }
 

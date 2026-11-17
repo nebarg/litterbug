@@ -26,7 +26,21 @@ litterbug --staged         # scan only the lines staged for commit
 ```
 
 Each finding shows the file, the line number, the line itself, and the language and
-pattern that matched:
+pattern that matched. In a terminal, findings are grouped under their file, with the
+matched text in red:
+
+```
+internal/api/handler.go
+  42  fmt.Println("user", u)  [go/fmt-print]
+
+web/src/cart.ts
+  17  console.log(items)  [javascript/console]
+
+2 debug statements in 2 files
+```
+
+When the output is piped or captured, as in CI or an IDE, each finding is printed on a
+line of its own as `path:line: text`, which editors and scripts can follow:
 
 ```
 internal/api/handler.go:42: fmt.Println("user", u)  [go/fmt-print]
@@ -34,6 +48,8 @@ web/src/cart.ts:17: console.log(items)  [javascript/console]
 
 2 debug statements in 2 files
 ```
+
+Set the `NO_COLOR` environment variable to turn color off.
 
 When nothing matches, litterbug prints `No debug statements found.` Lines longer than
 160 characters, such as minified code, are cut down to the part around the match.
@@ -62,7 +78,8 @@ statements already in a file don't stop a commit. When the hook finds something,
 stops the commit and shows what was found:
 
 ```
-cmd/todo/main.go:102: println("here")  [go/builtin-print]
+cmd/todo/main.go
+  102  println("here")  [go/builtin-print]
 
 1 debug statement in 1 file
 Remove them, or commit anyway with git commit --no-verify.
