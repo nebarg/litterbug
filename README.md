@@ -9,11 +9,25 @@ can add a language or a pattern, or switch one off, without changing any code.
 
 ## Install
 
+Each [release](https://github.com/nebarg/litterbug/releases) has litterbug for macOS
+and Linux, on `arm64` or `amd64`. On an Apple silicon Mac:
+
+```sh
+curl -sL https://github.com/nebarg/litterbug/releases/latest/download/litterbug_darwin_arm64.tar.gz | tar -xz litterbug
+mkdir -p ~/.local/bin
+mv litterbug ~/.local/bin/
+```
+
+For an Intel Mac or Linux, use `darwin_amd64`, `linux_arm64` or `linux_amd64` instead.
+`~/.local/bin` needs to be on your `PATH`.
+
+To build it with Go 1.27 or later instead:
+
 ```sh
 go install github.com/nebarg/litterbug/cmd/litterbug@latest
 ```
 
-Building litterbug needs Go 1.27 or later. The `--staged` option and the hook need Git.
+The `--staged` option and the hook need Git.
 
 ## Usage
 
