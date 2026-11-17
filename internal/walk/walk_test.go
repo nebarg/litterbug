@@ -59,6 +59,32 @@ func TestFiles(t *testing.T) {
 	}
 }
 
+func TestFilesSkipsExcludedFiles(t *testing.T) {
+	tree := map[string]string{
+		"Dumper.php":        "x\n",
+		"lib/Dumper.php":    "x\n",
+		"src/debug.php":     "x\n",
+		"web/src/debug.php": "x\n",
+		"src/keep.php":      "x\n",
+		".hidden.php":       "x\n",
+	}
+	exclude := Exclude{Names: []string{"Dumper.php"}, Paths: []string{"src/debug.php"}}
+	want := []string{".hidden.php", "src/keep.php", "web/src/debug.php"}
+	for _, setup := range setups {
+		t.Run(setup.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFiles(t, dir, tree)
+			if setup.repo {
+				gitInit(t, dir)
+			}
+			keepGitConfigOut(t)
+			if got := listFiles(t, dir, exclude); !slices.Equal(got, want) {
+				t.Errorf("files = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
 func TestFilesSkipsUnreadableDirectories(t *testing.T) {
 	for _, setup := range setups {
 		t.Run(setup.name, func(t *testing.T) {

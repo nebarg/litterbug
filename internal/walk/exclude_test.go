@@ -16,7 +16,8 @@ func TestParseExclude(t *testing.T) {
 		want      Exclude
 	}{
 		{"nothing to exclude", root, root, nil, Exclude{}},
-		{"bare names skip at any depth", root, root, []string{"dist/", "build"}, Exclude{Names: []string{"dist", "build"}}},
+		{"bare names skip at any depth", root, root, []string{"dist/", "build", "Dumper.php"}, Exclude{Names: []string{"dist", "build", "Dumper.php"}}},
+		{"file paths", root, root, []string{"src/Debug/Dumper.php"}, Exclude{Paths: []string{"src/Debug/Dumper.php"}}},
 		{"paths are from the base directory", sub, sub, []string{"./gen", "src/out/"}, Exclude{Paths: []string{"gen", "src/out"}}},
 		{"paths are made relative to a walked directory elsewhere", root, sub, []string{"web/gen", "other/gen", "..", "."}, Exclude{Paths: []string{"gen"}}},
 		{"absolute paths", sub, sub, []string{filepath.Join(sub, "gen")}, Exclude{Paths: []string{"gen"}}},

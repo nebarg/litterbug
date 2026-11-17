@@ -11,8 +11,8 @@ import (
 
 // Rules are the patterns a scan looks for, compiled from the merged config.
 type Rules struct {
-	// Exclude lists the directories to skip as the config gives them:
-	// names at any depth, or paths from the repository root.
+	// Exclude lists the files and directories to skip as the config gives
+	// them: names at any depth, or paths from the repository root.
 	Exclude   []string
 	languages []compiledLanguage
 }

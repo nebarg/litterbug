@@ -17,9 +17,10 @@ import (
 )
 
 // Files calls add with each regular file under dir, as a path relative to
-// dir. It skips directories in exclude and those starting with a dot, and
-// whatever a repository's gitignores, .git/info/exclude or the user's global
-// gitignore ignore. Hidden files are included. Cancelling ctx stops the walk.
+// dir. It skips the files and directories in exclude, directories starting
+// with a dot, and whatever a repository's gitignores, .git/info/exclude or
+// the user's global gitignore ignore. Hidden files are included. Cancelling
+// ctx stops the walk.
 func Files(ctx context.Context, dir string, exclude Exclude, add func(rel string)) error {
 	dir, err := filepath.Abs(dir)
 	if err != nil {
@@ -75,7 +76,7 @@ func (w *walker) walk(rel string, scope ignoreScope) error {
 			if err := w.walk(child, sub); err != nil {
 				return err
 			}
-		case entry.Type().IsRegular() && !scope.ignores(segments, false):
+		case entry.Type().IsRegular() && !w.exclude.excludes(child) && !scope.ignores(segments, false):
 			w.add(child)
 		}
 	}

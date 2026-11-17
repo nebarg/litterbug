@@ -9,9 +9,10 @@
 # its root: languages and patterns merge by name, and any other field it
 # sets replaces the one here.
 
-# Directories to skip: a name skips it at any depth, a path is from the
-# repository root. Directories starting with a dot, and whatever Git
-# ignores, are always skipped.
+# Files and directories to skip: a name skips any so named at any depth, and
+# a path, such as src/Debug/Dumper.php, is from the repository root.
+# Directories starting with a dot, and whatever Git ignores, are always
+# skipped.
 exclude:
   - node_modules
   - vendor

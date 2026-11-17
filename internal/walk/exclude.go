@@ -8,29 +8,37 @@ import (
 	"strings"
 )
 
-// Exclude lists directories a walk skips, on top of every directory whose
-// name starts with a dot. Names skip a directory at any depth; Paths are
-// slash-separated and relative to the walked directory.
+// Exclude lists files and directories a walk skips, on top of every
+// directory whose name starts with a dot. Names skip any file or directory
+// so named, at any depth; Paths are slash-separated and relative to the
+// walked directory.
 type Exclude struct {
 	Names []string
 	Paths []string
 }
 
-func (e Exclude) skipsDir(rel string) bool {
+// excludes reports whether the file or directory at rel is excluded.
+func (e Exclude) excludes(rel string) bool {
 	rel = filepath.ToSlash(rel)
-	name := path.Base(rel)
-	return strings.HasPrefix(name, ".") || slices.Contains(e.Names, name) || slices.Contains(e.Paths, rel)
+	return slices.Contains(e.Names, path.Base(rel)) || slices.Contains(e.Paths, rel)
 }
 
-// ParseExclude turns exclude values into directories to skip under dir. A
-// bare name skips that directory at any depth; anything with a slash is a
-// path from base, and one outside dir has nothing to skip.
+// skipsDir reports whether the directory at rel is skipped: excluded, or
+// starting with a dot. Files starting with a dot are walked.
+func (e Exclude) skipsDir(rel string) bool {
+	return strings.HasPrefix(filepath.Base(rel), ".") || e.excludes(rel)
+}
+
+// ParseExclude turns exclude values into files and directories to skip
+// under dir. A bare name skips any file or directory so named, at any
+// depth; anything with a slash is a path from base, and one outside dir has
+// nothing to skip.
 func ParseExclude(base, dir string, values []string) (Exclude, error) {
 	var exclude Exclude
 	for _, value := range values {
 		name := strings.TrimRight(filepath.ToSlash(value), "/")
 		if name == "" {
-			return Exclude{}, fmt.Errorf("exclude %q needs a directory name or path", value)
+			return Exclude{}, fmt.Errorf("exclude %q needs a file or directory name or path", value)
 		}
 		if !strings.Contains(name, "/") && name != "." && name != ".." {
 			exclude.Names = append(exclude.Names, name)
