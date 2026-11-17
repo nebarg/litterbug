@@ -325,3 +325,84 @@ func gitInit(t *testing.T, dir string) {
 		t.Fatalf("git init: %v %s", err, out)
 	}
 }
+
+func TestRunStaged(t *testing.T) {
+	dir := setup(t, map[string]string{"main.go": "package main\n", "web/index.php": "<?php\n"})
+	gitInit(t, dir)
+	commitAll(t, dir)
+	writeFiles(t, dir, map[string]string{
+		"main.go":       "package main\n\nfmt.Println(1)\n",
+		"web/index.php": "<?php\nvar_dump($x);\n",
+		"vendor/lib.go": "fmt.Println(1)\n",
+		"app.rb":        "binding.pry\n",
+	})
+	gitIn(t, dir, "add", ".")
+	writeFiles(t, dir, map[string]string{"untracked.go": "fmt.Println(1)\n", "web/untracked.php": "<?php var_dump(1);\n"})
+
+	stdout, stderr, status := runCLI(t, "--staged")
+	want := "main.go:3: fmt.Println(1)  [go/fmt-print]\n" + webFinding + "\n\n2 debug statements in 2 files\n" + stagedHint + "\n"
+	if stdout != want || stderr != "" || status != exitFound {
+		t.Fatalf("status %d\nstdout %q\nstderr %q\nwant   %q", status, stdout, stderr, want)
+	}
+
+	t.Chdir(filepath.Join(dir, "web"))
+	for _, c := range []struct {
+		args []string
+		want []string
+	}{
+		{nil, []string{"../main.go:3: fmt.Println(1)  [go/fmt-print]", "index.php:2: var_dump($x);  [php/var-dump]"}},
+		{[]string{"--lang", "ruby"}, []string{"../app.rb:1: binding.pry  [ruby/pry]"}},
+		{[]string{"-e", "*.php"}, []string{"../main.go:3: fmt.Println(1)  [go/fmt-print]"}},
+		{[]string{"-e", "./index.php"}, []string{"../main.go:3: fmt.Println(1)  [go/fmt-print]"}},
+		{[]string{"-e", "../main.go", "-e", "index.php"}, nil},
+	} {
+		t.Run(strings.Join(append([]string{"--staged"}, c.args...), " "), func(t *testing.T) {
+			stdout, stderr, status := runCLI(t, append([]string{"--staged"}, c.args...)...)
+			if got := findingLines(stdout); !slices.Equal(got, c.want) || stderr != "" || status != wantStatus(c.want) {
+				t.Fatalf("status %d, stderr %q\n got  %q\n want %q", status, stderr, got, c.want)
+			}
+		})
+	}
+}
+
+func TestRunStagedWithNothingStaged(t *testing.T) {
+	dir := setup(t, testTree)
+	gitInit(t, dir)
+	commitAll(t, dir)
+	stdout, stderr, status := runCLI(t, "--staged")
+	if stdout != "No debug statements found.\n" || stderr != "" || status != exitClean {
+		t.Fatalf("status %d\nstdout %q\nstderr %q", status, stdout, stderr)
+	}
+}
+
+func TestRunStagedErrors(t *testing.T) {
+	setup(t, testTree)
+	stdout, stderr, status := runCLI(t, "--staged")
+	if status != exitError || stdout != "" || !strings.Contains(stderr, "litterbug: --staged: ") || !strings.Contains(stderr, "not a git repository") {
+		t.Errorf("outside a repository: status %d, stdout %q, stderr %q", status, stdout, stderr)
+	}
+	stdout, stderr, status = runCLI(t, "--staged", "main.go")
+	if status != exitError || stdout != "" || !strings.Contains(stderr, "takes no paths") {
+		t.Errorf("with a path: status %d, stdout %q, stderr %q", status, stdout, stderr)
+	}
+}
+
+// commitAll commits everything in the repository at dir as a test user.
+func commitAll(t *testing.T, dir string) {
+	t.Helper()
+	for _, v := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"} {
+		t.Setenv(v, "Test")
+	}
+	for _, v := range []string{"GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"} {
+		t.Setenv(v, "test@example.com")
+	}
+	gitIn(t, dir, "add", ".")
+	gitIn(t, dir, "commit", "-qm", "commit")
+}
+
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v %s", args, err, out)
+	}
+}

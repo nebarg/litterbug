@@ -113,6 +113,20 @@ func splitPath(rel string) []string {
 	return strings.Split(filepath.ToSlash(rel), "/")
 }
 
+// SkipsPath reports whether a walk would skip the file at rel, a
+// slash-separated path relative to the walked directory, because it or a
+// directory it is in is skipped. It is for files found some other way,
+// such as in a diff.
+func (e Exclude) SkipsPath(rel string) bool {
+	segments := strings.Split(rel, "/")
+	for i := 1; i < len(segments); i++ {
+		if e.skips(strings.Join(segments[:i], "/"), true) {
+			return true
+		}
+	}
+	return e.skips(rel, false)
+}
+
 // skips reports whether a walk skips the file or directory at rel, relative
 // to the walked directory: one starting with a dot, if it is a directory,
 // or one an exclude pattern matches.

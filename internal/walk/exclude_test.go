@@ -87,6 +87,32 @@ func TestDotDirectoriesAreAlwaysSkipped(t *testing.T) {
 	}
 }
 
+func TestSkipsPath(t *testing.T) {
+	root := filepath.FromSlash("/repo")
+	exclude, err := ParseExclude(root, root, []string{"vendor", "web/gen", "*.min.js", "build/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rel, want := range map[string]bool{
+		"vendor/x.go":       true,
+		"a/vendor/b/x.go":   true,
+		"web/gen/x.go":      true,
+		"x/web/gen/y.go":    false,
+		"app.min.js":        true,
+		"web/app.min.js":    true,
+		"build/x.js":        true,
+		"build":             false,
+		".github/script.js": true,
+		"a/.cache/x.go":     true,
+		".eslintrc.js":      false,
+		"src/a.go":          false,
+	} {
+		if got := exclude.SkipsPath(rel); got != want {
+			t.Errorf("SkipsPath(%s) = %v, want %v", rel, got, want)
+		}
+	}
+}
+
 func TestExcludeWith(t *testing.T) {
 	root := filepath.FromSlash("/repo")
 	a, errA := ParseExclude(root, root, []string{"vendor"})

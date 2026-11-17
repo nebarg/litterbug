@@ -24,6 +24,7 @@ import (
 
 const usageText = `Usage:
   litterbug [flags] [path...]    find debug statements in files and directories (default: here)
+  litterbug --staged [flags]     find them in the lines staged for commit, as the hook does
 
 Directories are walked, skipping what Git ignores and what the config or
 --exclude excludes. A file or directory named here is scanned even if
@@ -45,10 +46,15 @@ const (
 
 type options struct {
 	paths   []string // as given; none means the current directory
+	staged  bool
 	langs   []string
 	exclude []string
 	version bool
 }
+
+// stagedHint follows what --staged finds, which blocks a commit when the
+// hook runs it.
+const stagedHint = "Remove them, or commit anyway with git commit --no-verify."
 
 // target is a file or directory to scan.
 type target struct {
@@ -79,30 +85,80 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	targets, err := resolveTargets(cwd, o.paths)
-	if err != nil {
-		return fail(stderr, err)
+	scanner := scanPaths
+	if o.staged {
+		scanner = scanStaged
 	}
-	root := repoRoot(cwd)
-	rules, err := config.Load(root, o.langs, stderr)
-	if err != nil {
-		return fail(stderr, err)
-	}
-	findings, err := scanTargets(ctx, cwd, root, targets, rules, o.exclude)
+	findings, err := scanner(ctx, cwd, o, stderr)
 	if err != nil {
 		return fail(stderr, err)
 	}
 	report(stdout, findings)
-	if len(findings) > 0 {
-		return exitFound
+	if len(findings) == 0 {
+		return exitClean
 	}
-	return exitClean
+	if o.staged {
+		_, _ = fmt.Fprintln(stdout, stagedHint)
+	}
+	return exitFound
+}
+
+// scanPaths scans the files and directories o names, or cwd without any.
+// Config notices are written to notices.
+func scanPaths(ctx context.Context, cwd string, o options, notices io.Writer) ([]scan.Finding, error) {
+	targets, err := resolveTargets(cwd, o.paths)
+	if err != nil {
+		return nil, err
+	}
+	root := repoRoot(cwd)
+	rules, err := config.Load(root, o.langs, notices)
+	if err != nil {
+		return nil, err
+	}
+	return scanTargets(ctx, cwd, root, targets, rules, o.exclude)
+}
+
+// scanStaged scans the lines added in the staged changes of the work tree
+// cwd is in, with paths from cwd.
+func scanStaged(ctx context.Context, cwd string, o options, notices io.Writer) ([]scan.Finding, error) {
+	if len(o.paths) > 0 {
+		return nil, errors.New("--staged scans what is staged, so it takes no paths")
+	}
+	root, err := scan.WorkTreeRoot(ctx, cwd)
+	if err != nil {
+		return nil, fmt.Errorf("--staged: %w", err)
+	}
+	// Git resolves symbolic links in root, so cwd must be resolved too for
+	// paths between them.
+	here, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return nil, err
+	}
+	rules, err := config.Load(root, o.langs, notices)
+	if err != nil {
+		return nil, err
+	}
+	exclude, err := excludeFor(here, root, root, rules.Exclude, o.exclude)
+	if err != nil {
+		return nil, err
+	}
+	findings, err := scan.Staged(ctx, root, exclude, rules)
+	if err != nil {
+		return nil, err
+	}
+	for i := range findings {
+		if rel, err := filepath.Rel(here, filepath.Join(root, filepath.FromSlash(findings[i].Path))); err == nil {
+			findings[i].Path = filepath.ToSlash(rel)
+		}
+	}
+	return findings, nil
 }
 
 // parseArgs reads the command line. --help prints the usage on out.
 func parseArgs(argv []string, out io.Writer) (options, error) {
 	var o options
 	flags := pflag.NewFlagSet("litterbug", pflag.ContinueOnError)
+	flags.BoolVar(&o.staged, "staged", false, "scan only the lines added in the changes staged for commit")
 	flags.StringSliceVarP(&o.langs, "lang", "l", nil, "only these `languages`, even if the config disables them (comma-separated or repeated)")
 	flags.StringArrayVarP(&o.exclude, "exclude", "e", nil, "also skip files and directories matching a `pattern`: a name at any depth, or with a slash, a path from here (repeatable)")
 	flags.BoolVar(&o.version, "version", false, "print the version")
