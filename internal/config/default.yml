@@ -3,6 +3,9 @@
 # Each language lists the file name endings it covers and the patterns that
 # find debug statements in those files. Patterns are Go (RE2) regular
 # expressions, matched against each line: no lookbehind or backreferences.
+# A line can hold several statements, and Go, JavaScript and PHP all allow
+# spaces between a function's name and its "(", so patterns don't assume
+# a call starts the line and allow \s* before the bracket.
 #
 # Set `enabled: false` on a language or a pattern to switch it off without
 # deleting it. A repository can override any of this in a .litterbug.yml at
@@ -23,35 +26,37 @@ languages:
     extensions: [.go]
     patterns:
       fmt-print:
-        regex: '\bfmt\.Print(f|ln)?\('
+        regex: '\bfmt\.Print(f|ln)?\s*\('
       builtin-print:
-        regex: '(^|[^\w.])print(ln)?\('
+        regex: '(^|[^\w.])print(ln)?\s*\('
       spew:
-        regex: '\bspew\.\w+\('
+        regex: '\bspew\.\w+\s*\('
       litter:
-        regex: '\blitter\.\w+\('
+        regex: '\blitter\.\w+\s*\('
 
   javascript:
     enabled: true
     extensions: [.js, .jsx, .mjs, .cjs, .ts, .tsx, .vue, .svelte]
     patterns:
       console:
-        regex: '\bconsole\.(log|debug|dir|table|trace)\('
+        regex: '\bconsole\.(log|debug|dir|table|trace)\s*\('
+      # debugger is a reserved word, so outside strings it is the statement
+      # or a property: x.debugger, or a key, { debugger: 1 }.
       debugger:
-        regex: '^\s*debugger\b'
+        regex: '(^|[^\w.$"''`])debugger\b\s*($|[^\s:])'
 
   php:
     enabled: true
     extensions: [.php, .phtml]
     patterns:
       var-dump:
-        regex: '\bvar_dump\('
+        regex: '\bvar_dump\s*\('
       print-r:
-        regex: '\bprint_r\('
-      # dd(), \dd() and @dd() in Blade, but not $x->dump() or X::dump().
+        regex: '\bprint_r\s*\('
+      # dd(), \dd() and @dd() in Blade, but not $x->dump(), X::dump() or $dump().
       dump-die:
         regex: '(^|[^\w>:$])(dd|ddd|dump)\s*\('
       ray:
-        regex: '(^|[^\w>:$])ray\('
+        regex: '(^|[^\w>:$])ray\s*\('
       xdebug-break:
-        regex: '\bxdebug_break\('
+        regex: '\bxdebug_break\s*\('
