@@ -1,0 +1,17 @@
+go:
+  enabled: true
+  extensions: [.go]
+  patterns:
+    # fmt.Print, Printf and Println are also how a command-line tool writes
+    # its output: switch this off if yours does.
+    fmt-print:
+      regex: '\bfmt\.Print(f|ln)?\s*\('
+    # print() and println(), but not a function or method of those names
+    # being defined.
+    builtin-print:
+      regex: '(^|[^\w.])print(ln)?\s*\('
+      unless: '\bfunc\s+(\([^)]*\)\s*)?print(ln)?\s*\('
+    spew:
+      regex: '\bspew\.\w+\s*\('
+    litter:
+      regex: '\blitter\.\w+\s*\('

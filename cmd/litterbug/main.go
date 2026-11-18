@@ -30,6 +30,7 @@ const usageText = `Usage:
   litterbug install-hook         block commits that add them, with a Git pre-commit hook
   litterbug uninstall-hook       remove that hook
   litterbug init-config          write the default config into this repository, to edit
+  litterbug add-language lang    add a built-in language's patterns to that config
 
 Directories are walked, skipping what Git ignores and what the config or
 --exclude excludes. A file or directory named here is scanned even if
@@ -98,6 +99,8 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, te
 			return uninstallHook(ctx, args[1:], stdout, stderr)
 		case "init-config":
 			return initConfig(args[1:], stdout, stderr)
+		case "add-language":
+			return addLanguage(args[1:], stdout, stderr)
 		}
 	}
 	o, err := parseArgs(args, stdout)
@@ -204,14 +207,22 @@ func parseArgs(argv []string, out io.Writer) (options, error) {
 	if !slices.Contains([]string{"auto", "always", "never"}, o.color) {
 		return o, fmt.Errorf("--color must be auto, always or never, not %q", o.color)
 	}
-	for i, lang := range o.langs {
-		o.langs[i] = strings.TrimSpace(lang)
-		if o.langs[i] == "" {
-			return o, errors.New("--lang needs a language name, such as go")
-		}
+	if err := trimLangs(o.langs); err != nil {
+		return o, err
 	}
 	o.paths = flags.Args()
 	return o, nil
+}
+
+// trimLangs trims the language names --lang gave, rejecting an empty one.
+func trimLangs(langs []string) error {
+	for i, lang := range langs {
+		langs[i] = strings.TrimSpace(lang)
+		if langs[i] == "" {
+			return errors.New("--lang needs a language name, such as go")
+		}
+	}
+	return nil
 }
 
 // resolveTargets finds the files and directories to scan, from paths

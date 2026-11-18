@@ -4,11 +4,12 @@ litterbug finds debug statements left in source code, such as `fmt.Println`,
 `console.log`, `var_dump` and `dd()`. It can scan files and directories, or run as a Git
 pre-commit hook that stops a commit adding them.
 
-**It works with any language, not just the ones it ships with.** Go, JavaScript,
-TypeScript and PHP are built in, but every language litterbug knows is just a few lines
-of config: the file endings it covers and the patterns to look for. So you can teach it
-Python's `breakpoint()`, Ruby's `binding.pry`, Rust's `dbg!` or anything else yourself,
-without changing litterbug or waiting for a release. See
+**It works with any language, not just the ones it ships with.** It has built-in
+patterns for Go, JavaScript and TypeScript, PHP, Python, Ruby, Rust, Java and C#, each
+tested against the calls it should find and against code that looks like them but isn't
+debugging. Any other language is a few lines of config: the file endings it covers and
+the patterns to look for. So you can teach it Elixir's `IO.inspect`, Swift's `dump()` or
+anything else yourself, without changing litterbug or waiting for a release. See
 [Adding a language](#adding-a-language).
 
 ## Install
@@ -92,10 +93,31 @@ directory. Run `litterbug --help` for every option.
 
 ## Adding a language
 
-Any language can be added by editing the config; there is nothing to build. For example,
-to catch leftover `print()` calls and breakpoints in Python:
+### Built-in languages
 
-1. Write out the default config, to `.litterbug.yml` at the root of the repository:
+Without a config file, and in one written by `litterbug init-config`, every built-in
+language is checked. `litterbug add-language` lists them, and adds any that a config file
+doesn't have yet, such as one written with `init-config --lang`, or by an earlier
+version of litterbug:
+
+```sh
+litterbug add-language                 # list the built-in languages
+litterbug add-language python ruby     # add them to this repository's .litterbug.yml
+litterbug add-language --global rust   # or to the global config
+```
+
+The new languages go after the ones the file has, and the rest of the file, comments
+included, is kept as it was. Patterns that also find a program's real output, such as
+Python's `print()` or Rust's `println!`, say so in a comment: switch them off with
+`enabled: false` if your code prints on purpose.
+
+### Other languages
+
+Any other language can be added by editing the config; there is nothing to build. For
+example, to catch leftover `IO.inspect`, `IEx.pry` and `dbg()` calls in Elixir:
+
+1. Write out the default config, to `.litterbug.yml` at the root of the repository,
+   unless the repository has one already:
 
    ```sh
    litterbug init-config
@@ -108,28 +130,30 @@ to catch leftover `print()` calls and breakpoints in Python:
    covers and a regex for each thing to look for:
 
    ```yaml
-     python:
-       extensions: [.py]
+     elixir:
+       extensions: [.ex, .exs, .heex]
        patterns:
-         print:
-           regex: '(^|[^\w.])print\s*\('
-         breakpoint:
-           regex: '\bbreakpoint\s*\(|\bpdb\.set_trace\s*\('
+         inspect:
+           regex: '\bIO\.inspect\b'
+         pry:
+           regex: '\bIEx\.pry\b'
+         dbg:
+           regex: '(^|[^\w.:])dbg\s*\('
    ```
 
-3. Run litterbug. Python files are now checked like any other, both on the command line
+3. Run litterbug. Elixir files are now checked like any other, both on the command line
    and by the pre-commit hook:
 
    ```
-   scripts/sync.py
-     7  print("rows", len(rows))  [python/print]
-     8  breakpoint()  [python/breakpoint]
-     9  pdb.set_trace()  [python/breakpoint]
+   lib/cart.ex
+     3  require IEx; IEx.pry()  [elixir/pry]
+     6  |> IO.inspect(label: "items")  [elixir/inspect]
+     9  |> dbg()  [elixir/dbg]
 
    3 debug statements in 1 file
    ```
 
-`litterbug --lang python` scans only the new language, which is handy while you tune
+`litterbug --lang elixir` scans only the new language, which is handy while you tune
 its patterns. Commit `.litterbug.yml` so everyone working in the repository gets the
 same checks. [Configuration](#configuration) covers the rest of the format, such as
 switching patterns off and excluding files.
@@ -176,15 +200,17 @@ pre-commit:
 
 ## Configuration
 
-Without a config file, litterbug uses its built-in defaults, which cover Go, JavaScript
-and TypeScript (including `.vue` and `.svelte` files), and PHP.
-[internal/config/default.yml](internal/config/default.yml) lists their patterns. To
-change them, or [add a language](#adding-a-language), write the defaults out as a
-config file, then edit it:
+Without a config file, litterbug uses its built-in defaults, which have every built-in
+language: Go, JavaScript and TypeScript (including `.vue` and `.svelte` files), PHP,
+Python, Ruby, Rust, Java and C#. [internal/config/languages](internal/config/languages)
+has their patterns, in a file for each language. To change them, or
+[add a language](#adding-a-language), write the defaults out as a config file, then
+edit it:
 
 ```sh
-litterbug init-config            # .litterbug.yml at the root of this repository
-litterbug init-config --global   # the global config, for repositories without their own
+litterbug init-config                    # .litterbug.yml at the root of this repository
+litterbug init-config --lang python,go   # with only these built-in languages
+litterbug init-config --global           # the global config, for repositories without their own
 ```
 
 litterbug uses one config, never a mix of them:
@@ -279,7 +305,8 @@ pick up patterns that later versions of litterbug add or fix. The release notes 
 the defaults change. To take them up, run `litterbug init-config --force`, with
 `--global` for the global config. It writes the new defaults and keeps the old file as a
 `.bak`, so you can copy your changes across. For a repository's config, `git diff` shows
-which changes to put back.
+which changes to put back. When a newer version only adds a built-in language,
+`litterbug add-language` adds it without touching the rest of the file.
 
 ## Limitations
 

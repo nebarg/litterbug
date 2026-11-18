@@ -1,0 +1,12 @@
+java:
+  enabled: true
+  extensions: [.java]
+  patterns:
+    # printStackTrace() without arguments, which prints to stderr, and
+    # Thread.dumpStack().
+    stack-trace:
+      regex: '\.printStackTrace\s*\(\s*\)|\bThread\.dumpStack\s*\('
+    # System.out and System.err are also how a command-line tool writes its
+    # output: switch this off if yours does.
+    system-out:
+      regex: '\bSystem\.(out|err)\.print(ln|f)?\s*\('

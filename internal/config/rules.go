@@ -64,9 +64,14 @@ func (r Rules) For(path string) []Rule {
 func compile(f file, langs []string) (Rules, error) {
 	names := slices.Sorted(maps.Keys(f.Languages))
 	for _, name := range langs {
-		if !slices.Contains(names, name) {
-			return Rules{}, fmt.Errorf("unknown language %q: the config has %s", name, strings.Join(names, ", "))
+		if slices.Contains(names, name) {
+			continue
 		}
+		err := fmt.Errorf("unknown language %q: the config has %s", name, strings.Join(names, ", "))
+		if isPreset(name) {
+			err = fmt.Errorf("%w; litterbug add-language %s adds it", err, name)
+		}
+		return Rules{}, err
 	}
 	rules := Rules{Exclude: f.Exclude}
 	for _, name := range names {

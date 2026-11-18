@@ -1,0 +1,24 @@
+python:
+  enabled: true
+  extensions: [.py]
+  patterns:
+    breakpoint:
+      regex: '(^|[^\w.])breakpoint\s*\('
+      unless: '\bdef\s+breakpoint\s*\('
+    # pdb.set_trace(), ipdb.set_trace() and the like: every set_trace() is
+    # a debugger's.
+    set-trace:
+      regex: '\bset_trace\s*\('
+      unless: '\bdef\s+set_trace\s*\('
+    # ic() from the icecream package.
+    icecream:
+      regex: '(^|[^\w.])ic\s*\('
+      unless: '\bdef\s+ic\s*\('
+    pprint:
+      regex: '(^|[^\w.])pprint\s*\(|\bpprint\.pp(rint)?\s*\('
+      unless: '\bdef\s+pprint\s*\('
+    # print() is also how a script writes its output: switch this off if
+    # yours does.
+    print:
+      regex: '(^|[^\w.])print\s*\('
+      unless: '\bdef\s+print\s*\('

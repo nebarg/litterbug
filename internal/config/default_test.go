@@ -52,6 +52,93 @@ var defaultPatternCases = map[string]struct {
 			`debuggers.push(x)`,
 		},
 	},
+	"python": {
+		file:      "app.py",
+		statement: "x = 1;",
+		hits: map[string][]string{
+			"breakpoint": {`breakpoint()`, `    breakpoint()`, `if x: breakpoint()`},
+			"set-trace": {
+				`import pdb; pdb.set_trace()`, `ipdb.set_trace()`, `__import__("pdb").set_trace()`,
+				`from pudb import set_trace; set_trace()`, `pdb.Pdb().set_trace()`,
+			},
+			"icecream": {`ic(x)`, `ic()`, `return ic(x)`},
+			"pprint":   {`pprint(x)`, `pprint.pprint(x)`, `pprint.pp(x)`},
+			"print":    {`print(x)`, `print("a", file=sys.stderr)`, `if x: print(x)`, `print(a); print(b)`},
+		},
+		misses: []string{
+			`self.print(x)`, `printer(x)`, `sprint(x)`, `blueprint(x)`, `logger.debug(x)`, `def print(self):`,
+			`def breakpoint(self):`, `obj.breakpoint()`, `set_breakpoint(x)`, `def set_trace(self):`, `sys.settrace(f)`,
+			`logic(x)`, `topic (x)`, `def ic(x):`, `from __future__ import print_function`, `pprint_thing(x)`,
+			`self.pprint(x)`, `def pprint(x):`,
+		},
+	},
+	"ruby": {
+		file:      "app.rb",
+		statement: "x = 1;",
+		hits: map[string][]string{
+			"binding": {`binding.pry`, `  binding.irb`, `binding.break`, `binding.b`, `binding.pry if x`, `<% binding.pry %>`},
+			"byebug":  {`byebug`, `  debugger`, `byebug if x`, `debugger; x += 1`, `debugger(do: "info")`},
+			"p": {
+				`p x`, `p(x)`, `pp obj`, `pp(obj)`, `ap user`, `p :sym`, `p "msg"`, `p [1, 2]`, `p @x`, `p({a: 1})`,
+				`items.each { |i| p i }`,
+			},
+			"puts": {`puts x`, `puts "msg"`, `puts(x)`, `puts`, `  puts @x`, `puts x if y`},
+		},
+		misses: []string{
+			`binding.local_variable_get(:x)`, `my_binding.pry`, `debugger_enabled = true`, `@debugger = x`, `debugger: true`,
+			`attr_reader :debugger`, `debugger = Debugger.new`, `self.debugger`, `if debugger?`, `def debugger`,
+			`require "byebug"`, `gem 'byebug'`, `p = 1`, `p.name`, `p + 1`, `return p if done`, `p ? a : b`, `[p, q]`,
+			`foo(p)`, `p, q = 1, 2`, `{ |p| p.name }`, `p * 2`, `p ||= x`, `def p(x)`, `cp x`, `apt x`, `obj.p x`,
+			`$stdout.puts x`, `STDERR.puts x`, `io.puts(x)`, `def puts(x)`, `puts_list x`, `:puts`, `yield p unless p.nil?`,
+			`x = p == q`, `<p class="notice">`, `"<p id=\"x\">hi</p>"`, `%w(-u webrick -p 4567)`, `%w[p q r]`, `h2, p {`,
+		},
+	},
+	"rust": {
+		file:      "main.rs",
+		statement: "let x = 1;",
+		hits: map[string][]string{
+			"dbg":   {`dbg!(x)`, `let y = dbg!(x * 2);`, `std::dbg!(x)`, `dbg![x]`, `dbg!()`},
+			"print": {`println!("{x}")`, `print!("x")`, `eprintln!("{:?}", x)`, `eprint!("x")`, `std::println!("x")`},
+		},
+		misses: []string{
+			`writeln!(f, "x")`, `format!("{x}")`, `my_dbg!(x)`, `my_println!(x)`, `fn print(&self) {}`, `self.print()`,
+			`log::debug!("x")`, `tracing::info!(x)`, `print_stats(x)`, `macro_rules! dbg {`, `eprint_usage()`,
+			`println!("cargo:rerun-if-changed=build.rs");`, `println!("cargo::rustc-cfg=x");`,
+		},
+	},
+	"java": {
+		file:      "App.java",
+		statement: "int x = 1;",
+		hits: map[string][]string{
+			"stack-trace": {
+				`e.printStackTrace();`, `} catch (Exception e) { e.printStackTrace(); }`, `Thread.dumpStack();`,
+				`ex.printStackTrace( );`,
+			},
+			"system-out": {`System.out.println(x);`, `System.err.println("x");`, `System.out.printf("%d%n", x);`, `System.out.print(x);`},
+		},
+		misses: []string{
+			`e.printStackTrace(writer);`, `e.printStackTrace(new PrintWriter(sw));`, `out.println(x);`, `writer.println(x);`,
+			`System.out.flush();`, `System.setOut(stream);`, `void printStackTrace() {`, `logger.info("x");`,
+			`MySystem.out.println(x);`,
+		},
+	},
+	"csharp": {
+		file:      "Program.cs",
+		statement: "var x = 1;",
+		hits: map[string][]string{
+			"debugger":    {`Debugger.Break();`, `System.Diagnostics.Debugger.Break();`, `Debugger.Launch();`, `if (x) Debugger.Break();`},
+			"debug-write": {`Debug.WriteLine("x");`, `Debug.Write(x);`, `Debug.Print("x");`, `Debug.Log(x);`, `UnityEngine.Debug.Log(x);`},
+			"console": {
+				`Console.WriteLine(x);`, `Console.Write(x);`, `Console.Error.WriteLine(e);`, `Console.Out.WriteLine(x);`,
+				`@{ Console.WriteLine(x); }`,
+			},
+		},
+		misses: []string{
+			`Debug.Assert(x);`, `Debug.LogError("x");`, `Debug.LogWarning(x);`, `Console.ReadLine();`,
+			`Console.Out.WriteLineAsync(x);`, `logger.LogDebug(x);`, `console.WriteLine(x);`, `Trace.TraceInformation(x);`,
+			`MyDebug.Log(x);`, `if (Debugger.IsAttached) {`,
+		},
+	},
 	"php": {
 		file:      "index.php",
 		statement: `$msg = "is valid php";`,

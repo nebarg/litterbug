@@ -1,0 +1,18 @@
+php:
+  enabled: true
+  extensions: [.php, .phtml]
+  patterns:
+    var-dump:
+      regex: '\bvar_dump\s*\('
+    print-r:
+      regex: '\bprint_r\s*\('
+    # dd(), \dd() and @dd() in Blade, but not $x->dump(), X::dump() or
+    # $dump(), or a function or method of those names being defined.
+    dump-die:
+      regex: '(^|[^\w>:$])(dd|ddd|dump)\s*\('
+      unless: '\bfunction\s+&?\s*(dd|ddd|dump)\s*\('
+    ray:
+      regex: '(^|[^\w>:$])ray\s*\('
+      unless: '\bfunction\s+&?\s*ray\s*\('
+    xdebug-break:
+      regex: '\bxdebug_break\s*\('

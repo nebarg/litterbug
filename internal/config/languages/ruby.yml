@@ -1,0 +1,24 @@
+ruby:
+  enabled: true
+  extensions: [.rb, .rake, .erb]
+  patterns:
+    # binding.pry and binding.irb, and binding.break and binding.b from the
+    # debug gem.
+    binding:
+      regex: '\bbinding\.(pry|irb|break|b|remote_pry|pry_remote)\b'
+    # byebug and debugger as calls, but not :debugger, @debugger, a
+    # debugger: key, debugger = or debugger?.
+    byebug:
+      regex: '(^|[^\w.:@$''"])(byebug|debugger)\b\s*($|[^\s:=?!])'
+      unless: '\bdef\s+(self\.)?(byebug|debugger)\b'
+    # p, pp and ap (from awesome_print) called with "(" or an argument, but
+    # not a p variable, as in p + 1, p.name or return p if done, nor an
+    # HTML <p class="x"> or a -p flag.
+    p:
+      regex: '(^|[^\w.:@$''"<>/\[-])(p|pp|ap)(\s*\(|\s+([\w@$"''\[]|:\w))'
+      unless: '\bdef\s+(self\.)?(p|pp|ap)\b|\b(p|pp|ap)\s+(if|unless|and|or|then|do|rescue|in|while|until|end)\b'
+    # puts is also how a script writes its output: switch this off if yours
+    # does.
+    puts:
+      regex: '(^|[^\w.:@$''"])puts(\s*\(|\s+([\w@$"''\[{]|:\w)|\s*$)'
+      unless: '\bdef\s+(self\.)?puts\b'

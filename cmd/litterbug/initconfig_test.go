@@ -70,6 +70,50 @@ func TestInitConfigGlobal(t *testing.T) {
 	}
 }
 
+func TestInitConfigLang(t *testing.T) {
+	dir := setup(t, map[string]string{"app.py": "breakpoint()\n", "main.go": "println(1)\n"})
+	repotest.Init(t, dir)
+	path := filepath.Join(dir, config.RepoFile)
+
+	stdout, stderr, status := runCLI(t, "init-config", "--lang", "python, ruby", "-l", "python")
+	if status != exitClean || stderr != "" || stdout != "Wrote a config for python and ruby to .litterbug.yml.\n" {
+		t.Fatalf("init-config --lang: status %d, stdout %q, stderr %q", status, stdout, stderr)
+	}
+	want, err := config.Default([]string{"python", "ruby"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, path); got != string(want) {
+		t.Errorf("wrote %q, want python and ruby alone", got)
+	}
+	if stdout, _, _ := runCLI(t); findingLines(stdout) == nil || strings.Contains(stdout, "main.go") {
+		t.Errorf("scanning with python and ruby alone: %q", stdout)
+	}
+
+	stdout, stderr, status = runCLI(t, "init-config", "--lang", "go")
+	if status != exitError || !strings.Contains(stderr, "Run litterbug add-language go to add to it, or litterbug init-config --force to replace it") {
+		t.Errorf("over an existing config: status %d, stdout %q, stderr %q", status, stdout, stderr)
+	}
+	for _, c := range []struct {
+		args []string
+		want string // in stderr
+	}{
+		{[]string{"--lang", "elixir", "--force"}, `there is no built-in language "elixir"`},
+		{[]string{"--lang", " "}, "--lang needs a language name"},
+	} {
+		stdout, stderr, status := runCLI(t, append([]string{"init-config"}, c.args...)...)
+		if status != exitError || stdout != "" || !strings.Contains(stderr, c.want) {
+			t.Errorf("init-config %v: status %d, stdout %q, stderr %q", c.args, status, stdout, stderr)
+		}
+	}
+	if got := readFile(t, path); got != string(want) {
+		t.Errorf("a failed init-config changed the config to %q", got)
+	}
+	if _, err := os.Stat(path + ".bak"); err == nil {
+		t.Error("a failed init-config --force made a backup")
+	}
+}
+
 func TestInitConfigErrors(t *testing.T) {
 	setup(t, nil)
 	for _, c := range []struct {

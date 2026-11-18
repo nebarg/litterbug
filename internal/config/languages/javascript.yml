@@ -1,0 +1,12 @@
+javascript:
+  enabled: true
+  extensions: [.js, .jsx, .mjs, .cjs, .ts, .tsx, .vue, .svelte]
+  patterns:
+    # console.log is also how a Node.js script writes its output: switch
+    # this off if yours does.
+    console:
+      regex: '\bconsole\.(log|debug|dir|table|trace)\s*\('
+    # debugger is a reserved word, so outside strings it is the statement
+    # or a property: x.debugger, or a key, { debugger: 1 }.
+    debugger:
+      regex: '(^|[^\w.$"''`])debugger\b\s*($|[^\s:])'

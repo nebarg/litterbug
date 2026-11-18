@@ -8,7 +8,6 @@ package config
 
 import (
 	"bytes"
-	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -21,9 +20,6 @@ import (
 
 // RepoFile is the name of a repository's config, at its root.
 const RepoFile = ".litterbug.yml"
-
-//go:embed default.yml
-var defaultConfig []byte
 
 // file is one config file as written.
 type file struct {
@@ -99,11 +95,16 @@ func GlobalPath() (string, error) {
 // ErrExists is returned by WriteDefault for a config that is already there.
 var ErrExists = errors.New("there is already a config")
 
-// WriteDefault writes the built-in defaults to path, as a config to edit,
+// WriteDefault writes the default config to path, as a config to edit,
+// with the built-in languages named in langs, or every one without any,
 // making its directory if need be. It returns ErrExists for a file already
 // at path, unless force, when that file is first moved to path + ".bak",
 // replacing any earlier backup, and the backup's path is returned.
-func WriteDefault(path string, force bool) (backup string, err error) {
+func WriteDefault(path string, langs []string, force bool) (backup string, err error) {
+	data, err := Default(langs)
+	if err != nil {
+		return "", err
+	}
 	if _, err := os.Lstat(path); err == nil {
 		if !force {
 			return "", ErrExists
@@ -118,7 +119,7 @@ func WriteDefault(path string, force bool) (backup string, err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return backup, err
 	}
-	return backup, os.WriteFile(path, defaultConfig, 0644)
+	return backup, os.WriteFile(path, data, 0644)
 }
 
 // parseRules reads a config file's content and compiles its rules.

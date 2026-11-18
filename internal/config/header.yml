@@ -1,0 +1,40 @@
+# litterbug config.
+#
+# Each language lists the file name endings it covers and the patterns that
+# find debug statements in those files. Patterns are Go (RE2) regular
+# expressions, matched against each line: no lookbehind or backreferences.
+# A line can hold several statements, and most languages allow spaces
+# between a function's name and its "(", so patterns don't assume a call
+# starts the line and allow \s* before the bracket.
+#
+# A pattern can also have an `unless` regex, and a line that both regexes
+# match isn't reported. Use it where another regex engine would need
+# lookbehind, such as to skip the definition of a function named dump.
+#
+# Set `enabled: false` on a language or a pattern to switch it off without
+# deleting it. Patterns that also find a program's real output, such as
+# print(), say so: switch those off if your code prints on purpose.
+#
+# litterbug has built-in patterns for more languages than this file may
+# hold. `litterbug add-language` lists them, and adds them to this file.
+#
+# litterbug uses one config, never a mix: a repository's .litterbug.yml if
+# it has one, the global config (~/.config/litterbug/config.yml) if not,
+# and its built-in defaults, which this file started as, without either.
+# So this file needs everything you want checked. To take up the defaults
+# of a newer litterbug, run `litterbug init-config --force` (with --global
+# for the global config), which keeps this file as a .bak.
+
+# Files and directories to skip, written as in a .gitignore: a pattern
+# without a slash matches a name at any depth, such as vendor or '*_test.go',
+# and one with a slash is a path from the repository root, such as
+# src/Debug/Dumper.php or 'dist/**'; a leading slash makes a single name
+# one too, so /gen/ is only the gen at the root. "**" matches any number of
+# directories, and a trailing slash matches only directories. Quote
+# patterns that start with "*". Directories starting with a dot, and
+# whatever Git ignores, are always skipped.
+exclude:
+  - node_modules
+  - vendor
+
+languages:

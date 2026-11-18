@@ -1,0 +1,15 @@
+csharp:
+  enabled: true
+  extensions: [.cs, .cshtml, .razor]
+  patterns:
+    debugger:
+      regex: '\bDebugger\.(Break|Launch)\s*\('
+    # System.Diagnostics.Debug output, and Debug.Log in Unity. Debug output
+    # is left out of release builds, so some projects keep it: switch this
+    # off if yours does.
+    debug-write:
+      regex: '\bDebug\.(Write|WriteLine|Print|Log)\s*\('
+    # Console output is also how a command-line tool writes its output:
+    # switch this off if yours does.
+    console:
+      regex: '\bConsole\.((Error|Out)\.)?Write(Line)?\s*\('

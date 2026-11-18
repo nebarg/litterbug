@@ -1,0 +1,13 @@
+rust:
+  enabled: true
+  extensions: [.rs]
+  patterns:
+    # dbg!(), with any of the brackets a macro can take.
+    dbg:
+      regex: '\bdbg!\s*[(\[{]'
+    # print!, println!, eprint! and eprintln! are also how a command-line
+    # tool writes its output: switch this off if yours does. A build script
+    # talks to Cargo with println!("cargo:..."), so those lines are skipped.
+    print:
+      regex: '\be?print(ln)?!\s*[(\[{]'
+      unless: '\bprintln!\s*[(\[{]\s*"cargo:'

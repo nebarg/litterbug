@@ -53,7 +53,9 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("exclude = %v, want %v", rules.Exclude, want)
 	}
 	for path, want := range map[string][]string{
-		"main.go": {"go"}, "web/app.TS": {"javascript"}, "App.vue": {"javascript"}, "views/home.blade.php": {"php"}, "README.md": nil,
+		"main.go": {"go"}, "web/app.TS": {"javascript"}, "App.vue": {"javascript"}, "views/home.blade.php": {"php"},
+		"app.py": {"python"}, "tasks/db.rake": {"ruby"}, "views/index.html.erb": {"ruby"}, "src/main.rs": {"rust"},
+		"App.java": {"java"}, "Program.cs": {"csharp"}, "Views/Index.cshtml": {"csharp"}, "README.md": nil,
 	} {
 		var languages []string
 		for _, rule := range rules.For(path) {
@@ -335,26 +337,42 @@ func TestWriteDefault(t *testing.T) {
 			t.Fatalf("%s = %q, %v; want %q", path, content, err, want)
 		}
 	}
-	if backup, err := WriteDefault(path, false); err != nil || backup != "" {
+	if backup, err := WriteDefault(path, nil, false); err != nil || backup != "" {
 		t.Fatalf("writing a new config: backup %q, %v", backup, err)
 	}
 	check(path, string(defaultConfig))
 
 	writeFile(t, path, "# mine\n")
-	if _, err := WriteDefault(path, false); !errors.Is(err, ErrExists) {
+	if _, err := WriteDefault(path, nil, false); !errors.Is(err, ErrExists) {
 		t.Fatalf("writing over a config without force: %v", err)
 	}
 	check(path, "# mine\n")
 
 	// Forcing again replaces the earlier backup.
 	for _, old := range []string{"# mine\n", string(defaultConfig)} {
-		backup, err := WriteDefault(path, true)
+		backup, err := WriteDefault(path, nil, true)
 		if err != nil || backup != path+".bak" {
 			t.Fatalf("forcing: backup %q, %v", backup, err)
 		}
 		check(path, string(defaultConfig))
 		check(backup, old)
 	}
+
+	python, err := Default([]string{"python"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteDefault(path, []string{"python"}, true); err != nil {
+		t.Fatal(err)
+	}
+	check(path, string(python))
+
+	// An unknown language is reported before anything is moved.
+	if _, err := WriteDefault(path, []string{"elixir"}, true); err == nil || !strings.Contains(err.Error(), `"elixir"`) {
+		t.Errorf("an unknown language: %v", err)
+	}
+	check(path, string(python))
+	check(path+".bak", string(defaultConfig))
 }
 
 // useGlobalConfig points the global config at a new directory, writes
