@@ -7,6 +7,10 @@
 # spaces between a function's name and its "(", so patterns don't assume
 # a call starts the line and allow \s* before the bracket.
 #
+# A pattern can also have an `unless` regex, and a line that both regexes
+# match isn't reported. Use it where another regex engine would need
+# lookbehind, such as to skip the definition of a function named dump.
+#
 # Set `enabled: false` on a language or a pattern to switch it off without
 # deleting it.
 #
@@ -36,8 +40,11 @@ languages:
     patterns:
       fmt-print:
         regex: '\bfmt\.Print(f|ln)?\s*\('
+      # print() and println(), but not a function or method of those names
+      # being defined.
       builtin-print:
         regex: '(^|[^\w.])print(ln)?\s*\('
+        unless: '\bfunc\s+(\([^)]*\)\s*)?print(ln)?\s*\('
       spew:
         regex: '\bspew\.\w+\s*\('
       litter:
@@ -62,10 +69,13 @@ languages:
         regex: '\bvar_dump\s*\('
       print-r:
         regex: '\bprint_r\s*\('
-      # dd(), \dd() and @dd() in Blade, but not $x->dump(), X::dump() or $dump().
+      # dd(), \dd() and @dd() in Blade, but not $x->dump(), X::dump() or
+      # $dump(), or a function or method of those names being defined.
       dump-die:
         regex: '(^|[^\w>:$])(dd|ddd|dump)\s*\('
+        unless: '\bfunction\s+&?\s*(dd|ddd|dump)\s*\('
       ray:
         regex: '(^|[^\w>:$])ray\s*\('
+        unless: '\bfunction\s+&?\s*ray\s*\('
       xdebug-break:
         regex: '\bxdebug_break\s*\('

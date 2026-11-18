@@ -43,6 +43,23 @@ func TestMatchLineReportsTheFirstMatchingRule(t *testing.T) {
 	}
 }
 
+func TestMatchLinePassesOverARuleWhoseUnlessMatches(t *testing.T) {
+	builtinPrint := config.Rule{
+		Language: "go", Name: "builtin-print",
+		Regex: regexp.MustCompile(`\bprint\(`), Unless: regexp.MustCompile(`\bfunc\s+print\(`),
+	}
+	rules := []config.Rule{builtinPrint, spew}
+	for line, want := range map[string]string{
+		`print(x)`:                           "builtin-print",
+		`func print(x any) {`:                "",
+		`func print(x any) { spew.Dump(x) }`: "spew",
+	} {
+		if f, ok := matchLine(rules, line); ok != (want != "") || f.Rule.Name != want {
+			t.Errorf("matchLine(%q) = %q, %v; want %q", line, f.Rule.Name, ok, want)
+		}
+	}
+}
+
 func TestFindInContent(t *testing.T) {
 	rules := []config.Rule{fmtPrint, spew}
 	for _, c := range []struct {

@@ -22,6 +22,20 @@ type Rules struct {
 type Rule struct {
 	Language, Name string
 	Regex          *regexp.Regexp
+	// Unless, if set, stops the rule matching a line that it also matches,
+	// such as one defining a function the rule looks for calls to.
+	Unless *regexp.Regexp
+}
+
+// Match returns where the rule's regex first matches line, as
+// FindStringIndex does, or nil when it doesn't match or Unless matches
+// line too. Unless only runs on a line the regex matches, which few are.
+func (r Rule) Match(line string) []int {
+	match := r.Regex.FindStringIndex(line)
+	if match == nil || (r.Unless != nil && r.Unless.MatchString(line)) {
+		return nil
+	}
+	return match
 }
 
 type compiledLanguage struct {
@@ -103,11 +117,25 @@ func compileLanguage(name string, l language) (compiledLanguage, error) {
 		if err != nil {
 			return compiledLanguage{}, fmt.Errorf("pattern %s/%s: %w", name, patternName, err)
 		}
+		unless, err := compileUnless(p.Unless)
+		if err != nil {
+			return compiledLanguage{}, fmt.Errorf("pattern %s/%s: unless: %w", name, patternName, err)
+		}
 		if enabled(p.Enabled) {
-			compiled.rules = append(compiled.rules, Rule{Language: name, Name: patternName, Regex: regex})
+			compiled.rules = append(compiled.rules, Rule{Language: name, Name: patternName, Regex: regex, Unless: unless})
 		}
 	}
 	return compiled, nil
+}
+
+// compileUnless compiles a pattern's unless regex, or returns nil for an
+// empty one, which is the same as leaving it out. As a regex, an empty one
+// would match every line, switching the pattern off.
+func compileUnless(unless string) (*regexp.Regexp, error) {
+	if unless == "" {
+		return nil, nil
+	}
+	return regexp.Compile(unless)
 }
 
 // enabled reads an enabled field, which is true when left out.

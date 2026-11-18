@@ -225,6 +225,19 @@ languages:
   files adds to the `php` patterns.
 - Each pattern's `regex` is matched against every line of a file. Patterns use Go's
   regular expression syntax (RE2), which has no lookbehind or backreferences.
+- A pattern can also have an `unless` regex, and a line that both regexes match isn't
+  reported. Use it where another regex engine would need lookbehind. The default PHP
+  `dump-die` pattern uses one so that defining a function or method named `dd` or `dump`
+  isn't reported as a call to it:
+
+  ```yaml
+  dump-die:
+    regex: '(^|[^\w>:$])(dd|ddd|dump)\s*\('
+    unless: '\bfunction\s+&?\s*(dd|ddd|dump)\s*\('
+  ```
+
+  `unless` applies to the whole line rather than to each match, so a line that defines
+  `dump()` and also calls `dd()` isn't reported either.
 - `enabled: false` switches a language or a single pattern off without deleting it. When
   `enabled` is left out, it defaults to true.
 - `exclude` lists files and directories to skip, written as in a `.gitignore`. A pattern
@@ -273,9 +286,6 @@ which changes to put back.
 - Patterns match whole lines without knowing which parts are code, comments or strings.
   A commented-out `// console.log(x)` is reported, and so is a debug call written inside
   a string.
-- The PHP `dump-die` pattern also matches the definition of a function or method named
-  `dd` or `dump`, as in a debugging helper. Exclude that file, or switch the pattern off
-  in the repository's config.
 - A repository nested inside the one being scanned, such as a submodule, is checked with
   the outer repository's config rather than its own. Scan it on its own, as in
   `litterbug path/to/submodule`, to use its config.

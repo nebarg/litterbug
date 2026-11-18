@@ -25,14 +25,15 @@ var defaultPatternCases = map[string]struct {
 				`fmt.Println("here", x)`, `	fmt.Printf("%v\n", x)`, `fmt.Print(x)`, `defer fmt.Println("done")`,
 				`fmt.Println(x); x++`,
 			},
-			"builtin-print": {`println("here")`, `	print(x)`, `println(a); println(b)`},
+			"builtin-print": {`println("here")`, `	print(x)`, `println(a); println(b)`, `defer func() { println("done") }()`},
 			"spew":          {`spew.Dump(x)`, `spew.Printf("%v", x)`, `s := spew.Sdump(x)`},
 			"litter":        {`litter.Dump(x)`, `s := litter.Sdump(x)`},
 		},
 		misses: []string{
 			`fmt.Fprintln(w, x)`, `fmt.Sprintf("%d", n)`, `fmt.Errorf("x: %w", err)`, `log.Printf("x")`,
 			`t.Logf("x")`, `w.Println(x)`, `sprint(x)`, `blueprint(x)`, `printer.Print(x)`, `spewer.Dump(x)`,
-			`litter.Options{}`, `x := fmt.Sprint(y); w.Println(x)`,
+			`litter.Options{}`, `x := fmt.Sprint(y); w.Println(x)`, `func print(x any) {`, `func println(a ...any) {`,
+			`func (p *printer) print(s string) {`, `func (p printer) println() {`,
 		},
 	},
 	"javascript": {
@@ -60,15 +61,18 @@ var defaultPatternCases = map[string]struct {
 			"dump-die": {
 				`dd($x);`, `\dd($x);`, `@dd($x)`, `dump($request);`, `ddd($x);`, `dd ($x);`, `return dd($x);`,
 				`$msg = "is valid php";dd ('heres a msg');`, `$y = $x;dd($x);dump($y);`,
+				`$f = function ($x) { dd($x); };`, `$f = fn ($x) => dump($x);`,
 			},
-			"ray":          {`ray($x);`, `ray($x)->green();`, `\ray($x);`},
+			"ray":          {`ray($x);`, `ray($x)->green();`, `\ray($x);`, `$f = function () { ray(1); };`},
 			"xdebug-break": {`xdebug_break();`},
 		},
 		misses: []string{
 			`$this->dump($x);`, `$obj?->dump($x);`, `Foo::dump($x);`, `static::dd($x);`, `$dump($x);`, `odd($x);`,
 			`add($x);`, `$this->dd($x);`, `$array = array(1);`, `$this->ray(1);`, `var_export($x, true);`,
 			`$logger->debug($x);`, `$print_r = 1;`, `dumper($x);`, `$msg = "is valid php";add ('heres a msg');`,
-			`$a = add($b);$c = odd ($d);`,
+			`$a = add($b);$c = odd ($d);`, `function dump($x) {`, `public function dd(...$args): never`,
+			`public static function dump($value)`, `abstract public function dump();`, `function &dump(array $x)`,
+			`function ray(...$items) {`,
 		},
 	},
 }
@@ -107,7 +111,7 @@ func TestDefaultPatterns(t *testing.T) {
 			for name, lines := range c.hits {
 				for _, line := range lines {
 					for _, variant := range lineVariants(line, c.statement) {
-						if !byName[name].Regex.MatchString(variant) {
+						if byName[name].Match(variant) == nil {
 							t.Errorf("%s/%s missed %q", language, name, variant)
 						}
 					}
@@ -116,7 +120,7 @@ func TestDefaultPatterns(t *testing.T) {
 			for _, line := range c.misses {
 				for _, variant := range lineVariants(line, c.statement) {
 					for name, rule := range byName {
-						if rule.Regex.MatchString(variant) {
+						if rule.Match(variant) != nil {
 							t.Errorf("%s/%s matched %q", language, name, variant)
 						}
 					}

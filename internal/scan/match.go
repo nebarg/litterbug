@@ -23,7 +23,7 @@ type Finding struct {
 // several rules match is reported once. The finding has no Path or Line.
 func matchLine(rules []config.Rule, line string) (Finding, bool) {
 	for _, rule := range rules {
-		if match := rule.Regex.FindStringIndex(line); match != nil {
+		if match := rule.Match(line); match != nil {
 			return Finding{Text: line, Rule: rule, Start: match[0], End: match[1]}, true
 		}
 	}

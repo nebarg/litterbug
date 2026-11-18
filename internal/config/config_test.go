@@ -170,6 +170,8 @@ func TestLoadRejectsAnInvalidRepoConfig(t *testing.T) {
 		{"an empty regex", goWith("      empty: {regex: ''}\n"), []string{"go/empty", "needs a regex"}},
 		{"a pattern without a regex", goWith("      new: {enabled: true}\n"), []string{"go/new", "needs a regex"}},
 		{"a disabled pattern is still checked", goWith("      ok: {regex: 'x'}\n      bad: {enabled: false, regex: '('}\n"), []string{"go/bad"}},
+		{"an unless that doesn't compile", goWith("      p: {regex: 'p', unless: '('}\n"), []string{"go/p", "unless", "missing closing )"}},
+		{"a disabled pattern's unless is still checked", goWith("      ok: {regex: 'x'}\n      bad: {enabled: false, regex: 'p', unless: '['}\n"), []string{"go/bad", "unless"}},
 		{"an extension without a dot", "languages:\n  python:\n    extensions: [py]\n    patterns:\n      print: {regex: 'print'}\n", []string{"python", `"py"`}},
 		{"an extension with a slash", "languages:\n  go:\n    extensions: [.go/x]\n    patterns:\n      p: {regex: 'p'}\n", []string{"go", `".go/x"`}},
 		{"a language without extensions", "languages:\n  python:\n    patterns:\n      print: {regex: 'print'}\n", []string{"language python", "extension"}},
@@ -193,6 +195,41 @@ func TestLoadRejectsAnInvalidRepoConfig(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestUnlessStopsAPatternMatchingALine(t *testing.T) {
+	useGlobalConfig(t, testConfig)
+	rules, err := loadWithRepo(t, `
+languages:
+  php:
+    extensions: [.php]
+    patterns:
+      dump: {regex: '\bdump\(', unless: '\bfunction\s+dump\('}
+      dd: {regex: '\bdd\(', unless: ''}
+`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]Rule{}
+	for _, rule := range rules.For("a.php") {
+		byName[rule.Name] = rule
+	}
+	for _, c := range []struct {
+		rule, line string
+		want       []int
+	}{
+		{"dump", `$y = dump($x);`, []int{5, 10}},
+		{"dump", `function dump($x) {`, nil},
+		{"dump", `function x() {}`, nil},
+		// unless applies to the whole line, not to each match.
+		{"dump", `function dump($x) { dump($y); }`, nil},
+		{"dd", `dd($x);`, []int{0, 3}}, // an empty unless is none
+		{"dd", `$x = 1;`, nil},
+	} {
+		if got := byName[c.rule].Match(c.line); !slices.Equal(got, c.want) {
+			t.Errorf("%s matches %q at %v, want %v", c.rule, c.line, got, c.want)
+		}
 	}
 }
 

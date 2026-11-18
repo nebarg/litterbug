@@ -40,6 +40,7 @@ type language struct {
 type pattern struct {
 	Enabled *bool  `yaml:"enabled"`
 	Regex   string `yaml:"regex"`
+	Unless  string `yaml:"unless"`
 }
 
 // Load reads the config that applies in the repository at repoRoot, or
