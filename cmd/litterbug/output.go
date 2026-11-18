@@ -26,13 +26,6 @@ type style struct {
 	color   bool
 }
 
-// styleFor picks how to print to out: grouped when it is a terminal, and
-// in color as color, --color's value, says.
-func styleFor(out io.Writer, color string) style {
-	file, ok := out.(*os.File)
-	return terminalStyle(ok && isTerminal(file), color, os.Getenv("NO_COLOR"))
-}
-
 // terminalStyle is the style for output to a terminal or not, with
 // --color's value, always, never or auto, and NO_COLOR's. auto colors
 // output to a terminal unless NO_COLOR has a value, which always, as a
@@ -48,9 +41,13 @@ func terminalStyle(terminal bool, color, noColor string) style {
 	return s
 }
 
-// isTerminal reports whether file is a character device, as a terminal
-// is. A pipe or a file, as when an IDE runs a hook, is not.
-func isTerminal(file *os.File) bool {
+// isTerminal reports whether out is a terminal: a file that is a
+// character device. A pipe or a file, as when an IDE runs a hook, is not.
+func isTerminal(out io.Writer) bool {
+	file, ok := out.(*os.File)
+	if !ok {
+		return false
+	}
 	info, err := file.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

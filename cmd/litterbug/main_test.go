@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"maps"
 	"os"
 	"path/filepath"
@@ -150,6 +151,27 @@ func TestRunColor(t *testing.T) {
 			stdout, stderr, status := runCLI(t, c.args...)
 			if want := c.want + "\n1 debug statement in 1 file\n"; stdout != want || stderr != "" || status != exitFound {
 				t.Errorf("status %d, stderr %q\n got  %q\n want %q", status, stderr, stdout, want)
+			}
+		})
+	}
+}
+
+// failingWriter fails every write, as a full disk or a closed stdout does.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("no space left on device")
+}
+
+func TestRunFailsWhenItCannotWriteItsOutput(t *testing.T) {
+	setup(t, testTree)
+	// A clean scan, one with findings, and a command that only prints.
+	for _, args := range [][]string{{"--count", "clean.go"}, {"main.go"}, {"--version"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var stderr bytes.Buffer
+			status := run(t.Context(), args, failingWriter{}, &stderr)
+			if want := "litterbug: writing output: no space left on device\n"; status != exitError || stderr.String() != want {
+				t.Errorf("status %d, stderr %q; want status %d, stderr %q", status, stderr.String(), exitError, want)
 			}
 		})
 	}
@@ -457,8 +479,8 @@ func TestPipesAndFilesAreNotTerminals(t *testing.T) {
 			t.Errorf("%s is taken for a terminal", f.Name())
 		}
 	}
-	if got := styleFor(&bytes.Buffer{}, "auto"); got != (style{}) {
-		t.Errorf("styleFor(a buffer) = %+v", got)
+	if isTerminal(&bytes.Buffer{}) {
+		t.Error("a buffer is taken for a terminal")
 	}
 }
 

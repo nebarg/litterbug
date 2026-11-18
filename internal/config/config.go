@@ -130,7 +130,9 @@ func parseRules(data []byte, langs []string) (Rules, error) {
 }
 
 // parse reads a config file's content, rejecting keys it doesn't know, so
-// a typo such as "enable: false" isn't silently ignored.
+// a typo such as "enable: false" isn't silently ignored. For the same
+// reason, a config is one YAML document: any after it, past a "---", may
+// only be empty.
 func parse(data []byte) (file, error) {
 	var f file
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
@@ -138,5 +140,17 @@ func parse(data []byte) (file, error) {
 	if err := decoder.Decode(&f); err != nil && !errors.Is(err, io.EOF) {
 		return file{}, err
 	}
-	return f, nil
+	for {
+		var rest any
+		err := decoder.Decode(&rest)
+		if errors.Is(err, io.EOF) {
+			return f, nil
+		}
+		if err != nil {
+			return file{}, err
+		}
+		if rest != nil {
+			return file{}, errors.New("a config is one YAML document, but there is another after a ---")
+		}
+	}
 }

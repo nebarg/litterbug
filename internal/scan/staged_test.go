@@ -116,6 +116,29 @@ func TestStagedReadsTheIndexGitNames(t *testing.T) {
 	}
 }
 
+// TestStagedChecksOnlyTheLinesARenameChanges moves a file holding a
+// debug statement and adds another, so only the added one is found,
+// whether or not diff.renames finds renames.
+func TestStagedChecksOnlyTheLinesARenameChanges(t *testing.T) {
+	rules := loadRules(t)
+	for _, renames := range []string{"true", "false"} {
+		t.Run("diff.renames="+renames, func(t *testing.T) {
+			repo := repotest.NewRepo(t)
+			repotest.Git(t, repo, "config", "diff.renames", renames)
+			repotest.WriteFiles(t, repo, map[string]string{"old.go": "package main\n\nfunc f() {\n\tfmt.Println(1)\n}\n"})
+			repotest.Git(t, repo, "add", ".")
+			repotest.Git(t, repo, "commit", "-qm", "first")
+			repotest.Git(t, repo, "mv", "old.go", "new.go")
+			repotest.WriteFiles(t, repo, map[string]string{"new.go": "package main\n\nfunc f() {\n\tfmt.Println(1)\n\tfmt.Println(2)\n}\n"})
+			repotest.Git(t, repo, "add", ".")
+			findings, err := Staged(t.Context(), repo, walk.Exclude{}, rules)
+			if got, want := describe(findings), []string{"new.go:5 go/fmt-print"}; err != nil || !slices.Equal(got, want) {
+				t.Fatalf("findings = %q, %v; want %q", got, err, want)
+			}
+		})
+	}
+}
+
 func TestStagedOverridesDiffSettings(t *testing.T) {
 	rules := loadRules(t)
 	repo := repotest.NewRepo(t)

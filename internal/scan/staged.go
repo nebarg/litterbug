@@ -12,10 +12,12 @@ import (
 // changes of the work tree whose top level is root, with paths from root.
 // Files exclude skips, with its paths from root, are left out. Git tells
 // it which index to read, so it sees what a commit will even for git
-// commit -a, which stages into an index of its own.
+// commit -a, which stages into an index of its own. Renames are found
+// whatever diff.renames says, so a file moved with a debug statement in
+// it isn't taken for a new one.
 func Staged(ctx context.Context, root string, exclude walk.Exclude, rules config.Rules) ([]Finding, error) {
 	diff, err := git.Run(ctx, root, "-c", "core.quotePath=false", "diff", "--cached",
-		"--no-color", "--no-ext-diff", "--no-textconv", "--unified=0", "--diff-filter=ACMR", "--src-prefix=a/", "--dst-prefix=b/")
+		"--no-color", "--no-ext-diff", "--no-textconv", "--unified=0", "--find-renames", "--diff-filter=ACMR", "--src-prefix=a/", "--dst-prefix=b/")
 	if err != nil {
 		return nil, err
 	}

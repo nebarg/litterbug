@@ -178,6 +178,9 @@ func TestLoadRejectsAnInvalidRepoConfig(t *testing.T) {
 		{"a language without patterns", "languages:\n  python: {extensions: [.py]}\n", []string{"language python", "pattern"}},
 		{"a disabled language is still checked", goWith("      p: {regex: 'p'}\n") + "  ruby:\n    enabled: false\n    extensions: [.rb]\n    patterns:\n      bad: {regex: '('}\n", []string{"ruby/bad"}},
 		{"every language disabled", "languages:\n  go:\n    enabled: false\n    extensions: [.go]\n    patterns:\n      p: {regex: 'p'}\n", []string{"no languages are enabled"}},
+		{"a second document", goWith("      p: {regex: 'p'}\n") + "---\nexclude: [vendor]\n", []string{"one YAML document"}},
+		{"a malformed second document", goWith("      p: {regex: 'p'}\n") + "---\nlanguages: [\n", []string{"line 7"}},
+		{"a malformed third document", goWith("      p: {regex: 'p'}\n") + "---\n---\nlanguages: [\n", []string{"line 8"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := loadWithRepo(t, c.repo, nil)
@@ -188,6 +191,23 @@ func TestLoadRejectsAnInvalidRepoConfig(t *testing.T) {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("error %q doesn't mention %q", err, want)
 				}
+			}
+		})
+	}
+}
+
+func TestLoadAllowsDocumentMarkersAroundTheConfig(t *testing.T) {
+	useGlobalConfig(t, testConfig)
+	python := "languages:\n  python:\n    extensions: [.py]\n    patterns:\n      print: {regex: 'print'}\n"
+	for name, repo := range map[string]string{
+		"a start marker":          "---\n" + python,
+		"an end marker":           python + "...\n",
+		"an empty document after": python + "---\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			rules, err := loadWithRepo(t, repo, nil)
+			if got := ruleNames(rules, "a.py"); err != nil || !slices.Equal(got, []string{"python/print"}) {
+				t.Errorf("rules for a.py = %v, %v", got, err)
 			}
 		})
 	}

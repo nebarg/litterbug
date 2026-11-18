@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"errors"
@@ -75,8 +76,20 @@ func main() {
 }
 
 // run runs litterbug with the arguments after the program name, and
-// returns its exit status.
+// returns its exit status. What it prints to stdout is buffered, and
+// failing to write it, as to a full disk, fails the run, as it does grep.
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	out := bufio.NewWriter(stdout)
+	status := runCommand(ctx, args, out, stderr, isTerminal(stdout))
+	if err := out.Flush(); err != nil {
+		return fail(stderr, fmt.Errorf("writing output: %w", err))
+	}
+	return status
+}
+
+// runCommand runs the command args give, printing to stdout, which is a
+// terminal if terminal is set, and returns its exit status.
+func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, terminal bool) int {
 	if len(args) > 0 {
 		switch args[0] {
 		case "install-hook":
@@ -113,7 +126,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if o.count {
 		_, _ = fmt.Fprintln(stdout, summary(findings))
 	} else {
-		report(stdout, findings, styleFor(stdout, o.color))
+		report(stdout, findings, terminalStyle(terminal, o.color, os.Getenv("NO_COLOR")))
 	}
 	if len(findings) == 0 {
 		return exitClean
