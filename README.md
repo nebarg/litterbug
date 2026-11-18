@@ -196,9 +196,9 @@ litterbug uses one config, never a mix of them:
 
 Because a repository's config is used whole, committing it gives everyone working in the
 repository the same checks, whatever their own global config says. Each file or
-directory litterbug scans uses the config of the repository it is in, so
-`litterbug ../other-repo` follows that repository's config rather than the current
-one's.
+directory named on the command line, or the current directory without one, uses the
+config of the repository it is in, so `litterbug ../other-repo` follows that
+repository's config rather than the current one's.
 
 ### Format
 
@@ -276,3 +276,6 @@ which changes to put back.
 - The PHP `dump-die` pattern also matches the definition of a function or method named
   `dd` or `dump`, as in a debugging helper. Exclude that file, or switch the pattern off
   in the repository's config.
+- A repository nested inside the one being scanned, such as a submodule, is checked with
+  the outer repository's config rather than its own. Scan it on its own, as in
+  `litterbug path/to/submodule`, to use its config.
