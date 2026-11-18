@@ -213,6 +213,8 @@ func TestRunExclude(t *testing.T) {
 		{[]string{"-e", "**/index.php"}, []string{mainFinding}},
 		{[]string{"-e", "web/**"}, []string{mainFinding}},
 		{[]string{"-e", "*.go", "-e", "*.php"}, nil},
+		{[]string{"-e", "/web/"}, []string{mainFinding}},
+		{[]string{"-e", "/index.php"}, []string{mainFinding, webFinding}},
 	} {
 		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
 			stdout, stderr, status := runCLI(t, c.args...)
@@ -240,6 +242,24 @@ func TestRunUsesTheRepoConfigFromASubdirectory(t *testing.T) {
 	stdout, _, _ = runCLI(t)
 	if got, want := findingLines(stdout), []string{"index.php:2: var_dump($x);  [php/var-dump]"}; !slices.Equal(got, want) {
 		t.Errorf("from web:\n got  %q\n want %q", got, want)
+	}
+}
+
+func TestRunAnchorsAConfigExcludeWithALeadingSlashAtTheRoot(t *testing.T) {
+	dir := setup(t, map[string]string{
+		config.RepoFile:  "exclude: [/gen/]\n" + goConfig,
+		"gen/out.go":     "fmt.Println(1)\n",
+		"web/gen/out.go": "fmt.Println(1)\n",
+	})
+	repotest.Init(t, dir)
+	for from, want := range map[string]string{
+		".":   "web/gen/out.go:1: fmt.Println(1)  [go/fmt-print]",
+		"web": "gen/out.go:1: fmt.Println(1)  [go/fmt-print]",
+	} {
+		t.Chdir(filepath.Join(dir, from))
+		if stdout, stderr, _ := runCLI(t); !slices.Equal(findingLines(stdout), []string{want}) || stderr != "" {
+			t.Errorf("from %s: stdout %q, stderr %q; want only %q", from, stdout, stderr, want)
+		}
 	}
 }
 

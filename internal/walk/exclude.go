@@ -30,10 +30,10 @@ type excludeRule struct {
 
 // ParseExclude turns exclude patterns into what a walk of dir skips. As in
 // a .gitignore, a pattern without a slash matches a name at any depth, and
-// one with a slash is a path from base; "*", "?" and "[...]" match within a
-// name, "**" matches any number of directories, and a trailing slash
-// matches only directories. A path outside both base and dir has nothing
-// to skip.
+// one with a slash, even a leading one, as in "/gen", is a path from base;
+// "*", "?" and "[...]" match within a name, "**" matches any number of
+// directories, and a trailing slash matches only directories. A path
+// outside both base and dir has nothing to skip.
 func ParseExclude(base, dir string, patterns []string) (Exclude, error) {
 	var exclude Exclude
 	for _, pattern := range patterns {
@@ -65,11 +65,9 @@ func parseExcludeRule(base, dir, pattern string) (rule excludeRule, ok bool, err
 		return rule, err == nil, err
 	}
 	rule.anchored = true
-	if filepath.IsAbs(pattern) {
-		volume := filepath.VolumeName(pattern)
-		base, trimmed = volume+string(filepath.Separator), strings.TrimLeft(trimmed[len(volume):], "/")
-	}
-	trimmed = path.Clean(trimmed)
+	// A leading slash only anchors the pattern, as in a .gitignore: it is
+	// never the root of the file system.
+	trimmed = path.Clean(strings.TrimLeft(trimmed, "/"))
 	for trimmed == ".." || strings.HasPrefix(trimmed, "../") {
 		base, trimmed = filepath.Dir(base), strings.TrimPrefix(strings.TrimPrefix(trimmed, ".."), "/")
 	}

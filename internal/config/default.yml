@@ -20,10 +20,11 @@
 # Files and directories to skip, written as in a .gitignore: a pattern
 # without a slash matches a name at any depth, such as vendor or '*_test.go',
 # and one with a slash is a path from the repository root, such as
-# src/Debug/Dumper.php or 'dist/**'. "**" matches any number of directories,
-# and a trailing slash matches only directories. Quote patterns that start
-# with "*". Directories starting with a dot, and whatever Git ignores, are
-# always skipped.
+# src/Debug/Dumper.php or 'dist/**'; a leading slash makes a single name
+# one too, so /gen/ is only the gen at the root. "**" matches any number of
+# directories, and a trailing slash matches only directories. Quote
+# patterns that start with "*". Directories starting with a dot, and
+# whatever Git ignores, are always skipped.
 exclude:
   - node_modules
   - vendor

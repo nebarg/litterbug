@@ -230,7 +230,9 @@ languages:
 - `exclude` lists files and directories to skip, written as in a `.gitignore`. A pattern
   without a slash matches a name at any depth, such as `vendor` or `'*_test.go'`. A
   pattern with a slash is a path from the repository root, such as `'dist/**'` or
-  `src/Debug/Dumper.php`. YAML needs patterns that start with `*` to be quoted.
+  `src/Debug/Dumper.php`, and a leading slash makes a single name one too, so `/gen/`
+  skips only the `gen` directory at the root. YAML needs patterns that start with `*` to
+  be quoted.
 
 A config holds everything that is checked: a language or pattern it leaves out isn't
 scanned for. An unknown key is an error, so a typo such as `enable: false` is reported

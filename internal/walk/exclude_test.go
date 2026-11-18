@@ -54,8 +54,16 @@ func TestExcludePatterns(t *testing.T) {
 			[]string{"api/"}, []string{"web/api/"}},
 		{"a base beside the walked directory", web, api, "./gen",
 			nil, []string{"gen/"}},
-		{"an absolute path", web, web, filepath.Join(web, "gen"),
-			[]string{"gen/"}, []string{"x/gen/"}},
+		{"a leading slash", root, root, "/gen",
+			[]string{"gen/", "gen"}, []string{"web/gen/", "gen2/"}},
+		{"a leading slash for directories only", root, root, "/gen/",
+			[]string{"gen/"}, []string{"gen", "web/gen/"}},
+		{"a leading slash with a glob", root, root, "/*.go",
+			[]string{"main.go"}, []string{"web/main.go"}},
+		{"a leading slash, walking inside the base", root, web, "/web/gen",
+			[]string{"gen/"}, []string{"web/gen/"}},
+		{"a leading slash is never the file system's root", web, web, filepath.ToSlash(filepath.Join(web, "gen")),
+			nil, []string{"gen/", "x/gen/"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			exclude, err := ParseExclude(c.base, c.dir, []string{c.pattern})
